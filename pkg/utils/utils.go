@@ -1,0 +1,68 @@
+package utils
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+)
+
+// IsFileExisting check file exist in volume driver
+func IsFileExisting(filename string) bool {
+	_, err := os.Stat(filename)
+	if err == nil {
+		return true
+	}
+	// Notice: this err may be is not dictionary error, it will returns true
+	if os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
+func ParseEndpoint(ep string) (string, string, error) {
+	if strings.HasPrefix(strings.ToLower(ep), "unix://") || strings.HasPrefix(strings.ToLower(ep), "tcp://") {
+		s := strings.SplitN(ep, "://", 2)
+		if s[1] != "" {
+			return s[0], s[1], nil
+		}
+	}
+	return "", "", fmt.Errorf("Invalid endpoint: %v", ep)
+}
+
+func WriteStringToFile(file *os.File, data string) (err error) {
+	write := bufio.NewWriter(file)
+	size, err := write.WriteString(data)
+	if err != nil {
+		return err
+	} else if size == 0 {
+		return fmt.Errorf("write nothing")
+	}
+	err = write.Flush()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadLinesFromFile(file *os.File) (lines []string, err error) {
+	reader := bufio.NewReader(file)
+	if reader.Size() < 0 {
+		return nil, fmt.Errorf("Failed to read from %s ", file.Name())
+	}
+
+	for {
+		line, err := reader.ReadString('\n')
+		lines = append(lines, strings.TrimSpace(line))
+		if err != nil {
+			if err == io.EOF {
+				return lines, nil
+			} else {
+				return nil, err
+			}
+		}
+	}
+
+	return lines, nil
+}
