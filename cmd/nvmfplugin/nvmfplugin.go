@@ -48,7 +48,7 @@ func main() {
 	flag.Parse()
 	flag.CommandLine.Parse([]string{})
 	cmd := &cobra.Command{
-		Use:"NVMf",
+		Use:   "NVMf",
 		Short: "CSI based NVMf driver",
 		Run: func(cmd *cobra.Command, args []string) {
 			handle()
