@@ -23,23 +23,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"k8s.io/klog"
-
-	"csi-driver-nvmf/pkg/utils"
 )
 
-func getConnector(nvmfInfo *nvmfDiskInfo) *Connector {
-	return &Connector{
-		VolumeID:   nvmfInfo.VolId,
-		DeviceUUID: nvmfInfo.DeviceUUID,
-		TargetNqn:  nvmfInfo.Nqn,
-		TargetAddr: nvmfInfo.Addr,
-		TargetPort: nvmfInfo.Port,
-		Transport:  nvmfInfo.Transport,
-	}
-}
-
-// connector provides a struct to hold all of the needed parameters to make nvmf connection
 type Connector struct {
 	VolumeID      string
 	DeviceUUID    string
@@ -50,6 +37,19 @@ type Connector struct {
 	RetryCount    int32
 	CheckInterval int32
 }
+
+func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
+	return &Connector{
+		VolumeID:   nvmfInfo.VolName,
+		DeviceUUID: nvmfInfo.DeviceUUID,
+		TargetNqn:  nvmfInfo.Nqn,
+		TargetAddr: nvmfInfo.Addr,
+		TargetPort: nvmfInfo.Port,
+		Transport:  nvmfInfo.Transport,
+	}
+}
+
+// connector provides a struct to hold all of the needed parameters to make nvmf connection
 
 func _connect(argStr string) error {
 	file, err := os.OpenFile("/dev/nvmf-fabrics", os.O_RDWR, 0666)
@@ -137,7 +137,7 @@ func disconnectByNqn(nqn string) int {
 }
 
 // connect to volume to this node and return devicePath
-func Connect(c *Connector) (string, error) {
+func (c *Connector) Connect() (string, error) {
 	if c.RetryCount == 0 {
 		c.RetryCount = 10
 	}
@@ -146,7 +146,7 @@ func Connect(c *Connector) (string, error) {
 	}
 
 	if c.RetryCount < 0 || c.CheckInterval < 0 {
-		return "", fmt.Errorf("Invalid RetryCount and CheckInterval combinaiton "+
+		return "", fmt.Errorf("Invalid RetryCount and CheckInterval combinaitons "+
 			"RetryCount: %d, CheckInterval: %d ", c.RetryCount, c.CheckInterval)
 	}
 
@@ -178,7 +178,7 @@ func Connect(c *Connector) (string, error) {
 }
 
 // we disconnect only by nqn
-func Disconnect(c *Connector) error {
+func (c *Connector) Disconnect() error {
 	ret := disconnectByNqn(c.TargetNqn)
 	if ret == 0 {
 		return fmt.Errorf("Disconnect: failed to disconnect by nqn: %s ", c.TargetNqn)
@@ -188,8 +188,7 @@ func Disconnect(c *Connector) error {
 }
 
 // PersistConnector persists the provided Connector to the specified file (ie /var/lib/pfile/myConnector.json)
-func persistConnector(c *Connector, filePath string) error {
-	//file := path.Join("mnt", c.VolumeName+".json")
+func persistConnectorFile(c *Connector, filePath string) error {
 	f, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("error creating nvmf persistence file %s: %s", filePath, err)
@@ -203,7 +202,7 @@ func persistConnector(c *Connector, filePath string) error {
 
 }
 
-func removeConnector(targetPath string) {
+func removeConnectorFile(targetPath string) {
 	// todo: here maybe be attack for os.Remove can operate any file, fix?
 	if err := os.Remove(targetPath + ".json"); err != nil {
 		klog.Errorf("DetachDisk: Can't remove connector file: %s", targetPath)

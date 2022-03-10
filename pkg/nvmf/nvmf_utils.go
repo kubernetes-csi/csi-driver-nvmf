@@ -24,12 +24,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"k8s.io/klog"
-
-	"csi-driver-nvmf/pkg/utils"
 )
 
 func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, deviceTransport string) (bool, error) {

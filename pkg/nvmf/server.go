@@ -22,10 +22,9 @@ import (
 	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"google.golang.org/grpc"
 	"k8s.io/klog"
-
-	"csi-driver-nvmf/pkg/utils"
 )
 
 // Defines Non blocking GRPC server interfaces

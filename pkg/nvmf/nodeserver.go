@@ -20,12 +20,11 @@ import (
 	"os"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
-
-	"csi-driver-nvmf/pkg/utils"
 )
 
 type NodeServer struct {
@@ -56,21 +55,20 @@ func (n *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCa
 func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 
 	// 1. check parameters
-	targetPath := req.TargetPath
-	if req.VolumeId == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume VolumeID must be provided")
+	if req.GetVolumeCapability() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing Volume Capability in req.")
 	}
 
-	if targetPath == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume Target Path must be provided")
+	if len(req.GetVolumeId()) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing VolumeID in req.")
 	}
 
-	if req.VolumeCapability == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume Volume Capability must be provided")
+	if len(req.GetTargetPath()) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing TargetPath in req.")
 	}
 
 	// 2. attachdisk
-	nvmfInfo, err := getNVMfInfo(req)
+	nvmfInfo, err := getNVMfDiskInfo(req)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: get NVMf disk info from req err: %v", err)
 	}
