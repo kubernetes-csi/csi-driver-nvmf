@@ -44,14 +44,14 @@ func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeReques
 	mountOptions := req.GetVolumeCapability().GetMount().GetMountFlags()
 
 	return &nvmfDiskMounter{
-		nvmfDiskInfo : nvmfInfo,
-		readOnly: readOnly,
-		fsType: fsType,
+		nvmfDiskInfo: nvmfInfo,
+		readOnly:     readOnly,
+		fsType:       fsType,
 		mountOptions: mountOptions,
-		mounter:    &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
-		exec:       exec.New(),
-		targetPath: req.GetTargetPath(),
-		connector:  getConnector(nvmfInfo),
+		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
+		exec:         exec.New(),
+		targetPath:   req.GetTargetPath(),
+		connector:    getConnector(nvmfInfo),
 	}
 }
 

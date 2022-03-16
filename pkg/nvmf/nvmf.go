@@ -40,7 +40,7 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 		return "", fmt.Errorf("Heuristic determination of mount point failed:%v", err)
 	}
 	if !notMounted {
-		klog.Infof("AttachDisk: VolumeID: %s, Path: %s is already mounted, device: %s", req.VolumeId, nm.targetPath)
+		klog.Infof("AttachDisk: VolumeID: %s, Path: %s is already mounted, device: %s", req.VolumeId, nm.targetPath, nm.DeviceUUID)
 		return "", nil
 	}
 

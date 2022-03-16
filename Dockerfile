@@ -1,5 +1,5 @@
 FROM debian:9.13
 
-COPY ./output/nvmfplugin .
+COPY ./bin/nvmfplugin .
 
-ENTRYPOINT ["./nvmfplugin"]
+ENTRYPOINT ["/nvmfplugin"]

@@ -79,6 +79,4 @@ func ReadLinesFromFile(file *os.File) (lines []string, err error) {
 			}
 		}
 	}
-
-	return lines, nil
 }
