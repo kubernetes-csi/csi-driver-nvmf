@@ -22,11 +22,90 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"k8s.io/klog"
+	"k8s.io/utils/exec"
 	"k8s.io/utils/mount"
 )
 
+type nvmfDiskInfo struct {
+	VolName    string
+	Nqn        string
+	Addr       string
+	Port       string
+	DeviceUUID string
+	Transport  string
+}
+
+type nvmfDiskMounter struct {
+	*nvmfDiskInfo
+	readOnly     bool
+	fsType       string
+	mountOptions []string
+	mounter      *mount.SafeFormatAndMount
+	exec         exec.Interface
+	targetPath   string
+	connector    *Connector
+}
+
+type nvmfDiskUnMounter struct {
+	mounter mount.Interface
+	exec    exec.Interface
+}
+
+func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
+	volName := req.GetVolumeId()
+
+	volOpts := req.GetVolumeContext()
+	targetTrAddr := volOpts["targetTrAddr"]
+	targetTrPort := volOpts["targetTrPort"]
+	targetTrType := volOpts["targetTrType"]
+	deviceUUID := volOpts["deviceUUID"]
+	nqn := volOpts["nqn"]
+
+	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" {
+		return nil, fmt.Errorf("Some Nvme target info is missing, volID: %s ", volName)
+	}
+
+	return &nvmfDiskInfo{
+		VolName:    volName,
+		Addr:       targetTrAddr,
+		Port:       targetTrPort,
+		Nqn:        nqn,
+		DeviceUUID: deviceUUID,
+		Transport:  targetTrType,
+	}, nil
+}
+
+func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeRequest) *nvmfDiskMounter {
+	readOnly := req.GetReadonly()
+	fsType := req.GetVolumeCapability().GetMount().GetFsType()
+	mountOptions := req.GetVolumeCapability().GetMount().GetMountFlags()
+
+	return &nvmfDiskMounter{
+		nvmfDiskInfo: nvmfInfo,
+		readOnly:     readOnly,
+		fsType:       fsType,
+		mountOptions: mountOptions,
+		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
+		exec:         exec.New(),
+		targetPath:   req.GetTargetPath(),
+		connector:    getNvmfConnector(nvmfInfo),
+	}
+}
+
+func getNVMfDiskUnMounter(req *csi.NodeUnpublishVolumeRequest) *nvmfDiskUnMounter {
+	return &nvmfDiskUnMounter{
+		mounter: mount.New(""),
+		exec:    exec.New(),
+	}
+}
+
 func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, error) {
-	devicePath, err := Connect(nm.connector)
+	if nm.connector == nil {
+		return "", fmt.Errorf("connector is nil")
+	}
+
+	// connect nvmf target disk
+	devicePath, err := nm.connector.Connect()
 	if err != nil {
 		klog.Errorf("AttachDisk: VolumeID %s failed to connect, Error: %v", req.VolumeId, err)
 		return "", err
@@ -44,12 +123,13 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 		return "", nil
 	}
 
+	// pre to mount
 	if err := os.MkdirAll(mntPath, 0750); err != nil {
 		klog.Errorf("AttachDisk: failed to mkdir %s, error", mntPath)
 		return "", err
 	}
 
-	err = persistConnector(nm.connector, mntPath+".json")
+	err = persistConnectorFile(nm.connector, mntPath+".json")
 	if err != nil {
 		klog.Errorf("AttachDisk: failed to persist connection info: %v", err)
 		klog.Errorf("AttachDisk: disconnecting volume and failing the publish request because persistence file are required for unpublish volume")
@@ -67,8 +147,8 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 	err = nm.mounter.FormatAndMount(devicePath, mntPath, nm.fsType, options)
 	if err != nil {
 		klog.Errorf("AttachDisk: failed to mount Device %s to %s with options: %v", devicePath, mntPath, options)
-		Disconnect(nm.connector)
-		removeConnector(mntPath)
+		nm.connector.Disconnect()
+		removeConnectorFile(mntPath)
 		return "", fmt.Errorf("failed to mount Device %s to %s with options: %v", devicePath, mntPath, options)
 	}
 
@@ -102,11 +182,11 @@ func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) erro
 		klog.Errorf("DetachDisk: failed to get connector from path %s Error: %v", targetPath, err)
 		return err
 	}
-	err = Disconnect(connector)
+	err = connector.Disconnect()
 	if err != nil {
 		klog.Errorf("DetachDisk: VolumeID: %s failed to disconnect, Error: %v", volumeID, err)
 		return err
 	}
-	removeConnector(targetPath)
+	removeConnectorFile(targetPath)
 	return nil
 }

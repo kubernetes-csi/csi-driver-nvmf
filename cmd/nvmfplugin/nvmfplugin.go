@@ -14,20 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package nvmf
+package main
 
 import (
 	"flag"
-	"fmt"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/spf13/cobra"
-
-	"csi-driver-nvmf/pkg/nvmf"
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/nvmf"
 )
 
 var (
@@ -47,31 +44,18 @@ func init() {
 func main() {
 	flag.Parse()
 	flag.CommandLine.Parse([]string{})
-	cmd := &cobra.Command{
-		Use:   "NVMf",
-		Short: "CSI based NVMf driver",
-		Run: func(cmd *cobra.Command, args []string) {
-			handle()
-		},
-	}
-
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err.Error())
-		os.Exit(1)
-	}
-
-	os.Exit(0)
+	runDriver()
 }
 
-func handle() {
+func runDriver() {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go func(endpoint string) {
+	go func() {
 		defer wg.Done()
 		driver := nvmf.NewDriver(&conf)
 		driver.Run(&conf)
-	}(conf.DriverName)
+	}()
 
 	servicePort := os.Getenv("SERVICE_PORT")
 	if len(servicePort) == 0 || servicePort == "" {
