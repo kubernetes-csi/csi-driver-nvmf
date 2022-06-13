@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
@@ -36,6 +37,8 @@ type driver struct {
 	idServer         *IdentityServer
 	nodeServer       *NodeServer
 	controllerServer *ControllerServer
+
+	client *client.Client
 
 	cap   []*csi.VolumeCapability_AccessMode
 	cscap []*csi.ControllerServiceCapability
@@ -59,6 +62,7 @@ func NewDriver(conf *GlobalConfig) *driver {
 }
 
 func (d *driver) Run(conf *GlobalConfig) {
+	var err error
 
 	d.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
@@ -71,6 +75,11 @@ func (d *driver) Run(conf *GlobalConfig) {
 	d.idServer = NewIdentityServer(d)
 	d.nodeServer = NewNodeServer(d)
 	if conf.IsControllerServer {
+		d.client, err = client.NewClient(conf.NVMfBackendEndpoint)
+		if err != nil {
+			klog.Fatal("create http client failed.")
+			return
+		}
 		d.controllerServer = NewControllerServer(d)
 	}
 
