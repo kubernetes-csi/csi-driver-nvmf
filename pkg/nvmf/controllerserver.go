@@ -17,12 +17,21 @@ limitations under the License.
 package nvmf
 
 import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/client"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
 )
+
+// the map of VolumeName to PvName for idempotency.
+var createdVolumeMap = map[string]*csi.Volume{}
 
 type ControllerServer struct {
 	Driver *driver
@@ -35,14 +44,148 @@ func NewControllerServer(d *driver) *ControllerServer {
 	}
 }
 
-//  You should realize your volume provider here, such as requesting the Cloud to create an NVMf block and
-//  returning specific information to you
 func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "CreateVolume should implement by yourself. ")
+	//1. check parameters
+	if err := c.Driver.ValidateControllerServiceRequest(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: NVMf Driver not support create volume.")
+	}
+
+	if len(req.GetName()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: volume's name cannot be empty.")
+	}
+
+	if req.GetVolumeCapabilities() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: volume %s's capabilities cannot be empty.", req.GetName())
+	}
+
+	if req.GetCapacityRange() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: volume %s's capacityRange cannot be empty.", req.GetName())
+	}
+
+	volSizeBytes := int64(req.GetCapacityRange().RequiredBytes)
+
+	createVolArgs := req.GetParameters()
+	createVolReq, err := ParseCreateVolumeParameters(createVolArgs)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: volume %s's parameters parsed error: %s", req.GetName(), err)
+	}
+
+	// 2. if created, return created volume info
+	oldVol, ok := createdVolumeMap[req.GetName()]
+	if ok {
+		// todo: check more vol context like permission?
+		// oldVolContext := oldVol.GetVolumeContext()
+		klog.Warningf("CreateVolume: volume %s has already created and volumeId: %s", req.GetName(), oldVol.VolumeId)
+		if oldVol.CapacityBytes != volSizeBytes {
+			return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: the exist vol-%s's size %d is different from the requested volume %s's size %d.", oldVol.VolumeId, oldVol.CapacityBytes, req.GetName(), volSizeBytes)
+		}
+		return &csi.CreateVolumeResponse{
+			Volume: oldVol,
+		}, nil
+	}
+
+	// 3. if not created, request backend controller to create a new volume
+	createVolReq.Name = req.GetName()
+	createVolReq.SizeByte = req.GetCapacityRange().RequiredBytes
+
+	volReqBody, err := json.Marshal(createVolReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: json marshal error: %s", err)
+	}
+
+	response := c.Driver.client.Post().Action("/volume/create").Body(volReqBody).Do()
+	klog.Infof("CreateVolume:create volume backend response's statuscode: %d, res: %s", response.StatusCode(), string(response.Body()))
+
+	if err := response.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: backend response error: %s", err)
+	}
+
+	if response.StatusCode() != http.StatusOK {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: backend has reponse but failed for volume %s", req.GetName())
+	}
+
+	var createVolumeResponse client.CreateVolumeResponse
+	err = response.Parse(&createVolumeResponse)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: response parse error: %s", err)
+	}
+
+	klog.Infof("CreateVolume: createVolume success for volume %s, volume ID: %s", req.GetName(), createVolumeResponse.ID)
+	volContext, _ := GetVolumeContext(&createVolumeResponse)
+
+	tmpVolume := &csi.Volume{
+		VolumeId:      createVolumeResponse.ID,
+		CapacityBytes: int64(createVolumeResponse.CapacityBytes),
+		VolumeContext: volContext,
+	}
+
+	createdVolumeMap[createVolumeResponse.ID] = tmpVolume
+	err = PersistVolumeInfo(tmpVolume, filepath.Join(c.Driver.volumeMapDir, tmpVolume.GetVolumeId()))
+	if err != nil {
+		klog.Warningf("CreateVolume: create volume %s success, but persistent error: %s", req.GetName(), err)
+	}
+
+	return &csi.CreateVolumeResponse{Volume: tmpVolume}, nil
 }
 
 func (c *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "DeleteVolume should implement by yourself. ")
+	// 1. check parameters
+	if err := c.Driver.ValidateControllerServiceRequest(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "DeleteVolume: NVMf Driver not support delete volume.")
+	}
+
+	if len(req.GetVolumeId()) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "DeleteVolume: delete req's volume ID can't be empty.")
+	}
+
+	if req.GetSecrets() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "DeleteVolume: delete req's secrets can't be empty")
+	}
+
+	var volume *csi.Volume
+	var err error
+
+	volumeMapFilePath := filepath.Join(c.Driver.volumeMapDir, req.GetVolumeId())
+
+	volume, ok := createdVolumeMap[req.GetVolumeId()]
+	if !ok {
+		klog.Errorf("DeleteVolume: can't find the vol-%s in driver cache", req.GetVolumeId())
+		volume, err = GetVolumeInfoFromFile(volumeMapFilePath)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "DeleteVolume: can't get vol-%s info from cache or file, not exist.", req.GetVolumeId())
+		}
+		klog.Warningf("DeleteVolume: get vol-%s from file.", req.GetVolumeId())
+	}
+
+	//todo: P0-delete should add some permission check.
+	deleteVolReq := &DeleteVolumeRequest{
+		VolumeId: volume.VolumeId,
+	}
+
+	deleteVolBody, err := json.Marshal(deleteVolReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "DeletedVolume: json marshal error: %s", err)
+	}
+
+	response := c.Driver.client.Post().Action("/volume/delete").Body(deleteVolBody).Do()
+	klog.Infof("DeleteVolume: delete volume backend response's statuscode: %d, res: %s", response.StatusCode(), string(response.Body()))
+
+	if response.StatusCode() != http.StatusOK {
+		if response.StatusCode() == 401 {
+			klog.Errorf("DeleteVolume: no permission to delete vol-%s", volume.VolumeId)
+		}
+		return nil, status.Errorf(codes.Internal, "DeleteVolume: backend has response but not success")
+	}
+
+	delete(createdVolumeMap, volume.VolumeId)
+	err = os.Remove(volumeMapFilePath)
+	if err != nil {
+		klog.Warningf("DeleteVolume: can't remove vol-%s mapping file %s for error: %s.", volume.VolumeId, volumeMapFilePath, err)
+	}
+
+	klog.Infof("DeleteVolume: delete vol-%s success.", volume.VolumeId)
+
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 func (c *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {

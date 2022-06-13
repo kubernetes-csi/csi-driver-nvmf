@@ -38,7 +38,9 @@ func init() {
 	flag.StringVar(&conf.DriverName, "drivername", nvmf.DefaultDriverName, "CSI Driver")
 	flag.StringVar(&conf.Region, "region", "test_region", "Region")
 	flag.StringVar(&conf.Version, "version", nvmf.DefaultDriverVersion, "Version")
+
 	flag.StringVar(&conf.NVMfVolumeMapDir, "nvmfVolumeMapDir", nvmf.DefaultVolumeMapPath, "Persistent volume")
+	flag.StringVar(&conf.NVMfBackendEndpoint, "nvmfBackendEndpoint", nvmf.DefaultBackendEndpoint, "NVMf Volume backend controller")
 }
 
 func main() {
