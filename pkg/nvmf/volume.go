@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/client"
@@ -16,7 +15,6 @@ type CreateVolumeRequest struct {
 	Name     string
 	SizeByte int64
 	// AllowHostNqn string
-	ReadOnly bool
 }
 
 type DeleteVolumeRequest struct {
@@ -25,19 +23,6 @@ type DeleteVolumeRequest struct {
 
 func ParseCreateVolumeParameters(parameters map[string]string) (volReq *CreateVolumeRequest, err error) {
 	//todo: need more parameters for nvmf
-
-	// readonly
-	readonly, ok := parameters["readonly"]
-	if !ok {
-		volReq.ReadOnly = false
-	} else {
-		readonly = strings.ToLower(readonly)
-		if readonly == "yes" || readonly == "true" || readonly == "1" {
-			volReq.ReadOnly = true
-		} else {
-			volReq.ReadOnly = false
-		}
-	}
 
 	return volReq, nil
 }

@@ -33,6 +33,12 @@ import (
 // the map of VolumeName to PvName for idempotency.
 var createdVolumeMap = map[string]*csi.Volume{}
 
+// the map of DeleteVolumeReq for idempotency
+var deletingVolumeReqMap = map[string]*csi.DeleteVolumeRequest{}
+
+// the map of CreateVolumeReq for idempotency
+var creatingVolumeReqMap = map[string]*csi.CreateVolumeRequest{}
+
 type ControllerServer struct {
 	Driver *driver
 }
@@ -84,7 +90,17 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 		}, nil
 	}
 
-	// 3. if not created, request backend controller to create a new volume
+	// 3. if creating, return error
+	_, ok = creatingVolumeReqMap[req.GetName()]
+	if ok {
+		klog.Warningf("CreateVolume: volume %s has been creating in other req", req.GetName())
+		//maybe return err?
+		return &csi.CreateVolumeResponse{}, nil
+	}
+
+	creatingVolumeReqMap[req.GetName()] = req
+
+	// 4. if not created, request backend controller to create a new volume
 	createVolReq.Name = req.GetName()
 	createVolReq.SizeByte = req.GetCapacityRange().RequiredBytes
 
@@ -124,6 +140,7 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 	if err != nil {
 		klog.Warningf("CreateVolume: create volume %s success, but persistent error: %s", req.GetName(), err)
 	}
+	delete(creatingVolumeReqMap, req.GetName())
 
 	return &csi.CreateVolumeResponse{Volume: tmpVolume}, nil
 }
@@ -147,7 +164,16 @@ func (c *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolu
 
 	volumeMapFilePath := filepath.Join(c.Driver.volumeMapDir, req.GetVolumeId())
 
-	volume, ok := createdVolumeMap[req.GetVolumeId()]
+	// 2. if deleting, return error
+	_, ok := deletingVolumeReqMap[req.GetVolumeId()]
+	if ok {
+		klog.Warningf("DeleteVolume: vol-%s has been deleting in other req", req.GetVolumeId())
+		// maybe return error?
+		return &csi.DeleteVolumeResponse{}, nil
+	}
+	deletingVolumeReqMap[req.GetVolumeId()] = req
+
+	volume, ok = createdVolumeMap[req.GetVolumeId()]
 	if !ok {
 		klog.Errorf("DeleteVolume: can't find the vol-%s in driver cache", req.GetVolumeId())
 		volume, err = GetVolumeInfoFromFile(volumeMapFilePath)
@@ -183,6 +209,7 @@ func (c *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolu
 		klog.Warningf("DeleteVolume: can't remove vol-%s mapping file %s for error: %s.", volume.VolumeId, volumeMapFilePath, err)
 	}
 
+	delete(deletingVolumeReqMap, volume.GetVolumeId())
 	klog.Infof("DeleteVolume: delete vol-%s success.", volume.VolumeId)
 
 	return &csi.DeleteVolumeResponse{}, nil
