@@ -1,18 +1,19 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-	name: nvmfplugin-pv
+  name: csi-nvmf-pv
 spec:
-	storageClassName: csi.nvmf.com
-	accessModes:
-	- ReadWriteOnce
-	capacity:
-	  storage: 20Gi
-	csi:
-	  driver: NVMf
-	  volumeAttributes:
-	  	targetTrAddr: "192.168.122.18"
-	  	targetTrPort: "49153"
-	  	targetTrType: "tcp"
-	  	deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
-	  	nqn: "nqn.2021-07.org.test-nvmf.example"
+  storageClassName: cs-nvmf-sc
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 20Gi
+  csi:
+    driver: csi.nvmf.com
+    volumeHandle: nvmf-data-id
+    volumeAttributes:
+      targetTrAddr: "192.168.122.18"
+      targetTrPort: "49153"
+      targetTrType: "tcp"
+      deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
+      nqn: "nqn.2022-08.org.test-nvmf.example"

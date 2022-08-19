@@ -52,7 +52,7 @@ func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
 // connector provides a struct to hold all of the needed parameters to make nvmf connection
 
 func _connect(argStr string) error {
-	file, err := os.OpenFile("/dev/nvmf-fabrics", os.O_RDWR, 0666)
+	file, err := os.OpenFile("/dev/nvme-fabrics", os.O_RDWR, 0666)
 	if err != nil {
 		klog.Errorf("Connect: open NVMf fabrics error: %v", err)
 		return err
@@ -155,7 +155,7 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort)
-	devicePath := strings.Join([]string{"/dev/disk/by-id/nvmf-uuid", c.DeviceUUID}, ".")
+	devicePath := strings.Join([]string{"/dev/disk/by-id/nvme-uuid", c.DeviceUUID}, ".")
 
 	// connect to nvmf disk
 	err := _connect(baseString)
@@ -165,7 +165,7 @@ func (c *Connector) Connect() (string, error) {
 	klog.Infof("Connect Volume %s success nqn: %s", c.VolumeID, c.TargetNqn)
 	retries := int(c.RetryCount / c.CheckInterval)
 	if exists, err := waitForPathToExist(devicePath, retries, int(c.CheckInterval), c.Transport); !exists {
-		klog.Errorf("connect nqn %s error %v, rollback", c.TargetNqn, err)
+		klog.Errorf("connect nqn %s error %v, rollback!!!", c.TargetNqn, err)
 		ret := disconnectByNqn(c.TargetNqn)
 		if ret < 0 {
 			klog.Errorf("rollback error !!!")

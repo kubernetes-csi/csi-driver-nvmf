@@ -17,7 +17,7 @@ package nvmf
 
 const (
 	NVMF_NQN_SIZE = 223
-	SYS_NVMF      = "/sys/class/nvmf"
+	SYS_NVMF      = "/sys/class/nvme"
 )
 
 // Here erron
