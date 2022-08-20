@@ -2,19 +2,19 @@ kind: DaemonSet
 apiVersion: apps/v1
 metadata:
   name: csi-nvmf-node
+  namespace: kube-system
 spec:
   selector:
     matchLabels:
-      app: csi-nvmf
-      role: node
+      app: csi-nvmf-node
   template:
     metadata:
       labels:
-        app: csi-nvmf
-        role: node
+        app: csi-nvmf-node
     spec:
-      serviceAccount: csi-nvmf-node
+      serviceAccount: csi-nvmf-node-sa
       hostNetwork: true
+      dnsPolicy: Default
       containers:
         - name: node-registrar
           image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
@@ -29,7 +29,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
           args:
-            - "--v=5"
+            - "--v=2"
             - "--csi-address=/csi/csi.sock"
             - "--kubelet-registration-path=/var/lib/kubelet/plugins/csi.nvmf.com/csi.sock"
           volumeMounts:
@@ -51,7 +51,7 @@ spec:
             - "--nodeid=$(NODE_ID)"
           env:
             - name: CSI_ENDPOINT
-              value: unix://var/lib/kubelet/plugins/csi.nvmf.com/csi.sock
+              value: unix:///var/lib/kubelet/plugins/csi.nvmf.com/csi.sock
             - name: NODE_ID
               valueFrom:
                 fieldRef:
@@ -62,17 +62,11 @@ spec:
             - name: pods-mount-dir
               mountPath: /var/lib/kubelet/pods
               mountPropagation: "Bidirectional"
-            - name: plugin-mount-dir
-              mountPath: /plugin
-              mountPropagation: "Bidirectional"
             - name: host-dev
               mountPath: /dev
               mountPropagation: "HostToContainer"
             - name: host-sys
               mountPath: /sys
-            - name: nvmf-tcp
-              mountPath: /usr/sbin/nvmf
-              subPath: nvmf
             - name: lib-modules
               mountPath: /lib/modules
               readOnly: true
@@ -80,10 +74,6 @@ spec:
         - name: socket-dir
           hostPath:
             path: /var/lib/kubelet/plugins/csi.nvmf.com
-            type: DirectoryOrCreate
-        - name: plugin-mount-dir
-          hostPath:
-            path: /var/lib/kubelet/plugins/csi-nvmfplugin
             type: DirectoryOrCreate
         - name: registration-dir
           hostPath:
@@ -96,9 +86,6 @@ spec:
         - name: host-dev
           hostPath:
             path: /dev
-        - name: nvmf-tcp
-          hostPath:
-            path: /usr/sbin
         - name: host-sys
           hostPath:
             path: /sys

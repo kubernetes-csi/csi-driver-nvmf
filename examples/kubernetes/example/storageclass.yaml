@@ -1,7 +1,7 @@
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: csi-nvmf-test
+  name: csi-nvmf-sc
 provisioner: csi.nvmf.com
 reclaimPolicy: Delete
 allowVolumeExpansion: true

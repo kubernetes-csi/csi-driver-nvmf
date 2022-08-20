@@ -1,11 +1,12 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: pvc-example
+  name: csi-nvmf-pvc
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: csi-nvmf-test
+  storageClassName: csi-nvmf-sc
   resources:
     requests:
       storage: 20Gi
+      

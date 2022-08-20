@@ -110,6 +110,10 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 		klog.Errorf("AttachDisk: VolumeID %s failed to connect, Error: %v", req.VolumeId, err)
 		return "", err
 	}
+	if devicePath == "" {
+		klog.Errorf("AttachDisk: VolumeId %s return nil devicePath", req.VolumeId)
+		return "", fmt.Errorf("VolumeId %s return nil devicePath", req.VolumeId)
+	}
 	klog.Infof("AttachDisk: Volume %s successful connected, Device：%s", req.VolumeId, devicePath)
 
 	mntPath := nm.targetPath

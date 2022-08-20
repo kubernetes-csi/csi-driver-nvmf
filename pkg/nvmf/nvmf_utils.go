@@ -32,9 +32,7 @@ import (
 )
 
 func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, deviceTransport string) (bool, error) {
-	var err error
 	for i := 0; i < maxRetries; i++ {
-		err = nil
 		if deviceTransport == "tcp" {
 			exist := utils.IsFileExisting(devicePath)
 			if exist {
@@ -49,11 +47,11 @@ func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, devi
 		}
 		time.Sleep(time.Second * time.Duration(intervalSeconds))
 	}
-	return false, err
+	return false, fmt.Errorf("not found devicePath %s", devicePath)
 }
 
 func GetDeviceNameByVolumeID(volumeID string) (deviceName string, err error) {
-	volumeLinkPath := strings.Join([]string{"/dev/disk/by-id/nvmf-uuid", volumeID}, ".")
+	volumeLinkPath := strings.Join([]string{"/dev/disk/by-id/nvme-uuid", volumeID}, ".")
 	stat, err := os.Lstat(volumeLinkPath)
 	if err != nil {
 		if os.IsNotExist(err) {

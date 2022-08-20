@@ -23,5 +23,5 @@ spec:
               name: nvmf-volume
       volumes:
         - name: nvmf-volume
-          persistentVolume:
-            claimName: pvc-example
+          persistentVolumeClaim:
+            claimName: csi-nvmf-pvc
