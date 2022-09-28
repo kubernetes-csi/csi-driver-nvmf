@@ -3,7 +3,7 @@ kind: PersistentVolume
 metadata:
   name: csi-nvmf-pv
 spec:
-  storageClassName: cs-nvmf-sc
+  storageClassName: csi-nvmf-sc
   accessModes:
     - ReadWriteOnce
   capacity:

@@ -51,7 +51,7 @@ echo 49153 > /sys/kernel/config/nvmet/ports/1/addr_trsvcid # target port is 4915
 ### 3.4 Link port and namespace
 
 ``` bash
-ln -s /sys/kernel/config/nvmet/subsystems/nqn.2022-08.org.test-nvmf.example/namespaces/ /sys/kernel/config/nvmet/ports/1/subsystems/nqn.2022-08.org.test-nvmf.example
+ln -s /sys/kernel/config/nvmet/subsystems/nqn.2022-08.org.test-nvmf.example/ /sys/kernel/config/nvmet/ports/1/subsystems/nqn.2022-08.org.test-nvmf.example
 ```
 
 ### 3.5 Record the DeviceUUID
