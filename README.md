@@ -39,10 +39,15 @@ $ make
 $ ./output/nvmfplugin --endpoint tcp://127.0.0.1:10000 --nodeid CSINode
 ```
 
-### 2.2 Prepare nvmf kernel target
+### 2.2 Prepare nvmf backend target(Kernel or SPDK)
 
+#### Kernel
 Follow [guide to set up kernel target](doc/setup_kernel_nvmf_target.md) to deploy kernel nvmf storage service on localhost.
 
+#### SPDK
+Follow [guide to set up SPDK target](https://spdk.io/doc/nvmf.html) to deploy spdk nvmf storage service on localhost.
+
+You can get the information needed for 3.2 through spdk's `script/rpc.py nvmf_get_subsystem`
 ### 3.1 Get plugin info
 ```
 $ csc identity plugin-info --endpoint tcp://127.0.0.1:10000
