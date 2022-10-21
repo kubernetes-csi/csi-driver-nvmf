@@ -61,7 +61,7 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	deviceUUID := volOpts["deviceUUID"]
 	nqn := volOpts["nqn"]
 
-	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" {
+	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" || deviceUUID == "" {
 		return nil, fmt.Errorf("Some Nvme target info is missing, volID: %s ", volName)
 	}
 
