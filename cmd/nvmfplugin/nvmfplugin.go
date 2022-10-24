@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/nvmf"
+	"k8s.io/klog"
 )
 
 var (
@@ -32,9 +32,10 @@ var (
 )
 
 func init() {
+	klog.InitFlags(nil)
 	flag.StringVar(&conf.Endpoint, "endpoint", "unix://csi/csi.sock", "CSI endpoint")
 	flag.StringVar(&conf.NodeID, "nodeid", "CSINode", "node id")
-	flag.BoolVar(&conf.IsControllerServer, "IsControllerServer", false, "Only run as controller service")
+	flag.BoolVar(&conf.IsControllerServer, "IsControllerServer", false, "also run as controller service")
 	flag.StringVar(&conf.DriverName, "drivername", nvmf.DefaultDriverName, "CSI Driver")
 	flag.StringVar(&conf.Region, "region", "test_region", "Region")
 	flag.StringVar(&conf.Version, "version", nvmf.DefaultDriverVersion, "Version")
@@ -62,12 +63,12 @@ func runDriver() {
 		servicePort = nvmf.DefaultDriverServicePort
 	}
 
-	glog.Info("CSI is running")
+	klog.Info("CSI is running")
 	server := &http.Server{Addr: ":" + servicePort}
 	http.HandleFunc("/healthz", healthHandler)
 
 	if err := server.ListenAndServe(); err != nil {
-		glog.Fatalf("Service health port listen and serve err : %s", err.Error())
+		klog.Fatalf("Service health port listen and serve err : %s", err.Error())
 	}
 	wg.Wait()
 	os.Exit(0)
