@@ -26,9 +26,8 @@ import (
 
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, deviceTransport string) (bool, error) {
@@ -73,7 +72,7 @@ func GetDeviceNameByVolumeID(volumeID string) (deviceName string, err error) {
 	if !strings.HasPrefix(resolved, "/dev") {
 		return "", fmt.Errorf("resolved symlink for %q was unexpected: %q", volumeLinkPath, resolved)
 	}
-	log.Infof("Device Link Info: %s link to %s", volumeLinkPath, resolved)
+	klog.Infof("Device Link Info: %s link to %s", volumeLinkPath, resolved)
 	tmp := strings.Split(resolved, "/")
 	return tmp[len(tmp)-1], nil
 }
