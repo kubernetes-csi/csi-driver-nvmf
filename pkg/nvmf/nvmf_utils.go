@@ -97,3 +97,20 @@ func logGRPC(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, h
 	}
 	return resp, err
 }
+
+func Rollback(err error, fc func()) {
+	if err != nil {
+		fc()
+	}
+}
+
+func makeFile(pathname string) error {
+	f, err := os.OpenFile(pathname, os.O_CREATE, os.FileMode(0644))
+	defer f.Close()
+	if err != nil {
+		if !os.IsExist(err) {
+			return err
+		}
+	}
+	return nil
+}

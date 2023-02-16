@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: csi-nvmf-pv
+  name: csi-nvmf-pv-fs
 spec:
-  storageClassName: csi-nvmf-sc
+  storageClassName: csi-nvmf-sc-fs
   accessModes:
     - ReadWriteOnce
   capacity:

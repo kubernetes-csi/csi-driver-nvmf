@@ -18,6 +18,7 @@ package nvmf
 
 import (
 	"os"
+	"path"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
@@ -53,8 +54,7 @@ func (n *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCa
 }
 
 func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-
-	// 1. check parameters
+	// Pre-check
 	if req.GetVolumeCapability() == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing Volume Capability in req.")
 	}
@@ -67,18 +67,49 @@ func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing TargetPath in req.")
 	}
 
-	// 2. attachdisk
+	klog.Infof("VolumeID %s publish to targetPath %s.", req.GetVolumeId(), req.GetTargetPath())
+	// Connect remote disk
 	nvmfInfo, err := getNVMfDiskInfo(req)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: get NVMf disk info from req err: %v", err)
 	}
-	diskMounter := getNVMfDiskMounter(nvmfInfo, req)
 
-	// attachDisk realize connect NVMf disk and mount to docker path
-	_, err = AttachDisk(req, *diskMounter)
+	connector := getNvmfConnector(nvmfInfo)
+	devicePath, err := connector.Connect()
+
+	connectorFilePath := path.Join(DefaultVolumeMapPath, req.GetVolumeId()+".json")
+
 	if err != nil {
-		klog.Errorf("NodePublishVolume: Attach volume %s with error: %s", req.VolumeId, err.Error())
-		return nil, err
+		klog.Errorf("VolumeID %s failed to connect, Error: %v", req.VolumeId, err)
+		return nil, status.Errorf(codes.Internal, "VolumeID %s failed to connect, Error: %v", req.VolumeId, err)
+	}
+	if devicePath == "" {
+		klog.Errorf("VolumeID %s connected, but return nil devicePath", req.VolumeId)
+		return nil, status.Errorf(codes.Internal, "VolumeID %s connected, but return nil devicePath", req.VolumeId)
+	}
+	klog.Infof("Volume %s successful connected, Device：%s", req.VolumeId, devicePath)
+	defer Rollback(err, func() {
+		connector.Disconnect()
+	})
+
+	err = persistConnectorFile(connector, connectorFilePath)
+	if err != nil {
+		klog.Errorf("failed to persist connection info: %v", err)
+		return nil, status.Errorf(codes.Internal, "VolumeID %s persist connection info error: %v", req.VolumeId, err)
+	}
+
+	// Attach disk to container path
+	if req.GetVolumeCapability().GetBlock() != nil && req.GetVolumeCapability().GetMount() != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot have both block and mount access type")
+	}
+
+	defer Rollback(err, func() {
+		removeConnectorFile(connectorFilePath)
+	})
+
+	err = AttachDisk(req, devicePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "VolumeID %s attach error: %v", req.VolumeId, err)
 	}
 
 	return &csi.NodePublishVolumeResponse{}, nil
@@ -87,18 +118,35 @@ func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 func (n *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	klog.Infof("NodeUnpublishVolume: Starting unpublish volume, %s, %v", req.VolumeId, req)
 
+	// Pre-check
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnpublishVolume VolumeID must be provided")
 	}
 	if req.TargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnpublishVolume Staging TargetPath must be provided")
 	}
+
+	// Detach disk
 	targetPath := req.GetTargetPath()
-	err := DetachDisk(req.VolumeId, getNVMfDiskUnMounter(req), targetPath)
+	err := DetachDisk(req.VolumeId, targetPath)
 	if err != nil {
-		klog.Errorf("NodeUnpublishVolume: VolumeID: %s detachDisk err: %v", req.VolumeId, err)
+		klog.Errorf("VolumeID: %s detachDisk err: %v", req.VolumeId, err)
 		return nil, err
 	}
+
+	// Disconnect remote disk
+	connectorFilePath := path.Join(DefaultVolumeMapPath, req.GetVolumeId()+".json")
+	connector, err := GetConnectorFromFile(connectorFilePath)
+	if err != nil {
+		klog.Errorf("failed to get connector from path %s Error: %v", targetPath, err)
+		return nil, status.Errorf(codes.Internal, "failed to get connector from path %s Error: %v", targetPath, err)
+	}
+	err = connector.Disconnect()
+	if err != nil {
+		klog.Errorf("VolumeID: %s failed to disconnect, Error: %v", targetPath, err)
+		return nil, status.Errorf(codes.Internal, "failed to get connector from path %s Error: %v", targetPath, err)
+	}
+	removeConnectorFile(connectorFilePath)
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }

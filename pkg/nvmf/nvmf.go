@@ -35,22 +35,6 @@ type nvmfDiskInfo struct {
 	Transport  string
 }
 
-type nvmfDiskMounter struct {
-	*nvmfDiskInfo
-	readOnly     bool
-	fsType       string
-	mountOptions []string
-	mounter      *mount.SafeFormatAndMount
-	exec         exec.Interface
-	targetPath   string
-	connector    *Connector
-}
-
-type nvmfDiskUnMounter struct {
-	mounter mount.Interface
-	exec    exec.Interface
-}
-
 func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	volName := req.GetVolumeId()
 
@@ -75,93 +59,83 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	}, nil
 }
 
-func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeRequest) *nvmfDiskMounter {
-	readOnly := req.GetReadonly()
-	fsType := req.GetVolumeCapability().GetMount().GetFsType()
-	mountOptions := req.GetVolumeCapability().GetMount().GetMountFlags()
+func AttachDisk(req *csi.NodePublishVolumeRequest, devicePath string) error {
+	mounter := &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()}
 
-	return &nvmfDiskMounter{
-		nvmfDiskInfo: nvmfInfo,
-		readOnly:     readOnly,
-		fsType:       fsType,
-		mountOptions: mountOptions,
-		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
-		exec:         exec.New(),
-		targetPath:   req.GetTargetPath(),
-		connector:    getNvmfConnector(nvmfInfo),
+	targetPath := req.GetTargetPath()
+
+	if req.GetVolumeCapability().GetBlock() != nil {
+		_, err := os.Lstat(targetPath)
+		if os.IsNotExist(err) {
+			if err = makeFile(targetPath); err != nil {
+				return fmt.Errorf("failed to create target path, err: %s", err.Error())
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("failed to check if the target block file exist, err: %s", err.Error())
+		}
+
+		notMounted, err := mounter.IsLikelyNotMountPoint(targetPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("error checking path %s for mount: %w", targetPath, err)
+			}
+			notMounted = true
+		}
+
+		if !notMounted {
+			klog.Infof("VolumeID: %s, Path: %s is already mounted, device: %s", req.VolumeId, targetPath, devicePath)
+			return nil
+		}
+
+		options := []string{""}
+		if err = mounter.Mount(devicePath, targetPath, "", options); err != nil {
+			klog.Errorf("AttachDisk: failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
+			return fmt.Errorf("failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
+		}
+
+	} else if req.GetVolumeCapability().GetMount() != nil {
+		notMounted, err := mounter.IsLikelyNotMountPoint(targetPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				klog.Errorf("AttachDisk: VolumeID: %s, Path %s is not exist, so create one.", req.GetVolumeId(), req.GetTargetPath())
+				if err = os.MkdirAll(targetPath, 0750); err != nil {
+					return fmt.Errorf("create target path: %v", err)
+				}
+				notMounted = true
+			} else {
+				return fmt.Errorf("check target path %v", err)
+			}
+		}
+
+		if !notMounted {
+			klog.Infof("AttachDisk: VolumeID: %s, Path: %s is already mounted.", req.GetVolumeId(), req.GetTargetPath())
+			return nil
+		}
+
+		fsType := req.GetVolumeCapability().GetMount().GetFsType()
+		readonly := req.GetReadonly()
+		mountOptions := req.GetVolumeCapability().GetMount().GetMountFlags()
+		options := []string{""}
+		if readonly {
+			options = append(options, "ro")
+		} else {
+			options = append(options, "rw")
+		}
+		options = append(options, mountOptions...)
+
+		if err = mounter.FormatAndMount(devicePath, targetPath, fsType, options); err != nil {
+			klog.Errorf("AttachDisk: failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
+			return fmt.Errorf("failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
+		}
 	}
+	return nil
 }
 
-func getNVMfDiskUnMounter(req *csi.NodeUnpublishVolumeRequest) *nvmfDiskUnMounter {
-	return &nvmfDiskUnMounter{
-		mounter: mount.New(""),
-		exec:    exec.New(),
-	}
-}
+func DetachDisk(volumeID string, targetPath string) error {
+	mounter := mount.New("")
 
-func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, error) {
-	if nm.connector == nil {
-		return "", fmt.Errorf("connector is nil")
-	}
-
-	// connect nvmf target disk
-	devicePath, err := nm.connector.Connect()
-	if err != nil {
-		klog.Errorf("AttachDisk: VolumeID %s failed to connect, Error: %v", req.VolumeId, err)
-		return "", err
-	}
-	if devicePath == "" {
-		klog.Errorf("AttachDisk: VolumeId %s return nil devicePath", req.VolumeId)
-		return "", fmt.Errorf("VolumeId %s return nil devicePath", req.VolumeId)
-	}
-	klog.Infof("AttachDisk: Volume %s successful connected, Device：%s", req.VolumeId, devicePath)
-
-	mntPath := nm.targetPath
-	klog.Infof("AttachDisk: MntPath: %s", mntPath)
-	notMounted, err := nm.mounter.IsLikelyNotMountPoint(mntPath)
-	if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("Heuristic determination of mount point failed:%v", err)
-	}
-	if !notMounted {
-		klog.Infof("AttachDisk: VolumeID: %s, Path: %s is already mounted, device: %s", req.VolumeId, nm.targetPath, nm.DeviceUUID)
-		return "", nil
-	}
-
-	// pre to mount
-	if err := os.MkdirAll(mntPath, 0750); err != nil {
-		klog.Errorf("AttachDisk: failed to mkdir %s, error", mntPath)
-		return "", err
-	}
-
-	err = persistConnectorFile(nm.connector, mntPath+".json")
-	if err != nil {
-		klog.Errorf("AttachDisk: failed to persist connection info: %v", err)
-		klog.Errorf("AttachDisk: disconnecting volume and failing the publish request because persistence file are required for unpublish volume")
-		return "", fmt.Errorf("unable to create persistence file for connection")
-	}
-
-	// Tips: use k8s mounter to mount fs and only support "ext4"
-	var options []string
-	if nm.readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
-	options = append(options, nm.mountOptions...)
-	err = nm.mounter.FormatAndMount(devicePath, mntPath, nm.fsType, options)
-	if err != nil {
-		klog.Errorf("AttachDisk: failed to mount Device %s to %s with options: %v", devicePath, mntPath, options)
-		nm.connector.Disconnect()
-		removeConnectorFile(mntPath)
-		return "", fmt.Errorf("failed to mount Device %s to %s with options: %v", devicePath, mntPath, options)
-	}
-
-	klog.Infof("AttachDisk: Successfully Mount Device %s to %s with options: %v", devicePath, mntPath, options)
-	return devicePath, nil
-}
-
-func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) error {
-	_, cnt, err := mount.GetDeviceNameFromMount(num.mounter, targetPath)
+	_, cnt, err := mount.GetDeviceNameFromMount(mounter, targetPath)
 	if err != nil {
 		klog.Errorf("nvmf detach disk: failed to get device from mnt: %s\nError: %v", targetPath, err)
 		return err
@@ -172,7 +146,7 @@ func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) erro
 		klog.Warningf("Warning: Unmount skipped because path does not exist: %v", targetPath)
 		return nil
 	}
-	if err = num.mounter.Unmount(targetPath); err != nil {
+	if err = mounter.Unmount(targetPath); err != nil {
 		klog.Errorf("iscsi detach disk: failed to unmount: %s\nError: %v", targetPath, err)
 		return err
 	}
@@ -181,16 +155,5 @@ func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) erro
 		return nil
 	}
 
-	connector, err := GetConnectorFromFile(targetPath + ".json")
-	if err != nil {
-		klog.Errorf("DetachDisk: failed to get connector from path %s Error: %v", targetPath, err)
-		return err
-	}
-	err = connector.Disconnect()
-	if err != nil {
-		klog.Errorf("DetachDisk: VolumeID: %s failed to disconnect, Error: %v", volumeID, err)
-		return err
-	}
-	removeConnectorFile(targetPath)
 	return nil
 }
