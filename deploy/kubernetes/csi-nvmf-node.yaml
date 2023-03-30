@@ -17,13 +17,10 @@ spec:
       dnsPolicy: Default
       containers:
         - name: node-registrar
-          image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /registration/csi.nvmf.com \
-                          /registration/csi.nvmf.com-reg.sock"]
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.6.2
           env:
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/csi.nvmf.com/csi.sock
             - name: KUBE_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -31,12 +28,26 @@ spec:
           args:
             - "--v=2"
             - "--csi-address=/csi/csi.sock"
-            - "--kubelet-registration-path=/var/lib/kubelet/plugins/csi.nvmf.com/csi.sock"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          livenessProbe:
+            exec:
+              command:
+                - /csi-node-driver-registrar
+                - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+                - --mode=kubelet-registration-probe
+            initialDelaySeconds: 30
+            timeoutSeconds: 15
           volumeMounts:
             - name: registration-dir
               mountPath: /registration
             - name: socket-dir
               mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
 
         - name: csi-nvmf-plugin
           securityContext:
