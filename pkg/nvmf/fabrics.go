@@ -34,11 +34,12 @@ type Connector struct {
 	TargetAddr    string
 	TargetPort    string
 	Transport     string
+	HostNqn       string
 	RetryCount    int32
 	CheckInterval int32
 }
 
-func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
+func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 	return &Connector{
 		VolumeID:   nvmfInfo.VolName,
 		DeviceUUID: nvmfInfo.DeviceUUID,
@@ -46,6 +47,7 @@ func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
 		TargetAddr: nvmfInfo.Addr,
 		TargetPort: nvmfInfo.Port,
 		Transport:  nvmfInfo.Transport,
+		HostNqn:    hostnqn,
 	}
 }
 
@@ -84,8 +86,9 @@ func _disconnect(sysfs_path string) error {
 	return nil
 }
 
-func disconnectSubsys(nqn, ctrl string) (res bool) {
+func disconnectSubsys(nqn, hostnqn, ctrl string) (res bool) {
 	sysfs_nqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
+	sysfs_hostnqn_path := fmt.Sprintf("%s/%s/hostnqn", SYS_NVMF, ctrl)
 	sysfs_del_path := fmt.Sprintf("%s/%s/delete_controller", SYS_NVMF, ctrl)
 
 	file, err := os.Open(sysfs_nqn_path)
@@ -106,6 +109,24 @@ func disconnectSubsys(nqn, ctrl string) (res bool) {
 		return false
 	}
 
+	file, err = os.Open(sysfs_hostnqn_path)
+	if err != nil {
+		klog.Errorf("Disconnect: open file %s err: %v", file.Name(), err)
+		return false
+	}
+	defer file.Close()
+
+	lines, err = utils.ReadLinesFromFile(file)
+	if err != nil {
+		klog.Errorf("Disconnect: read file %s err: %v", file.Name(), err)
+		return false
+	}
+
+	if lines[0] != hostnqn {
+		klog.Warningf("Disconnect: not this subsystem, skip")
+		return false
+	}
+
 	err = _disconnect(sysfs_del_path)
 	if err != nil {
 		klog.Errorf("Disconnect: disconnect error: %s", err)
@@ -115,7 +136,7 @@ func disconnectSubsys(nqn, ctrl string) (res bool) {
 	return true
 }
 
-func disconnectByNqn(nqn string) int {
+func disconnectByNqn(nqn, hostnqn string) int {
 	ret := 0
 	if len(nqn) > NVMF_NQN_SIZE {
 		klog.Errorf("Disconnect: nqn %s is too long ", nqn)
@@ -129,7 +150,7 @@ func disconnectByNqn(nqn string) int {
 	}
 
 	for _, device := range devices {
-		if disconnectSubsys(nqn, device.Name()) {
+		if disconnectSubsys(nqn, hostnqn, device.Name()) {
 			ret++
 		}
 	}
@@ -154,7 +175,7 @@ func (c *Connector) Connect() (string, error) {
 		return "", fmt.Errorf("csi transport only support tcp/rdma ")
 	}
 
-	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort)
+	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s,hostnqn=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort, c.HostNqn)
 	devicePath := strings.Join([]string{"/dev/disk/by-id/nvme-uuid", c.DeviceUUID}, ".")
 
 	// connect to nvmf disk
@@ -166,7 +187,7 @@ func (c *Connector) Connect() (string, error) {
 	retries := int(c.RetryCount / c.CheckInterval)
 	if exists, err := waitForPathToExist(devicePath, retries, int(c.CheckInterval), c.Transport); !exists {
 		klog.Errorf("connect nqn %s error %v, rollback!!!", c.TargetNqn, err)
-		ret := disconnectByNqn(c.TargetNqn)
+		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
 		if ret < 0 {
 			klog.Errorf("rollback error !!!")
 		}
@@ -179,7 +200,7 @@ func (c *Connector) Connect() (string, error) {
 
 // we disconnect only by nqn
 func (c *Connector) Disconnect() error {
-	ret := disconnectByNqn(c.TargetNqn)
+	ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
 	if ret == 0 {
 		return fmt.Errorf("Disconnect: failed to disconnect by nqn: %s ", c.TargetNqn)
 	}
