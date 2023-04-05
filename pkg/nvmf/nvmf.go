@@ -142,11 +142,6 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 
 	// Tips: use k8s mounter to mount fs and only support "ext4"
 	var options []string
-	if nm.readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
 	options = append(options, nm.mountOptions...)
 	err = nm.mounter.FormatAndMount(devicePath, mntPath, nm.fsType, options)
 	if err != nil {
