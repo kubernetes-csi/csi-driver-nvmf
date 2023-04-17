@@ -17,6 +17,7 @@ limitations under the License.
 package nvmf
 
 import (
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -86,7 +87,7 @@ func _disconnect(sysfs_path string) error {
 	return nil
 }
 
-func disconnectSubsys(nqn, hostnqn, ctrl string) (res bool) {
+func disconnectSubsysWithHostNqn(nqn, hostnqn, ctrl string) (res bool) {
 	sysfs_nqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
 	sysfs_hostnqn_path := fmt.Sprintf("%s/%s/hostnqn", SYS_NVMF, ctrl)
 	sysfs_del_path := fmt.Sprintf("%s/%s/delete_controller", SYS_NVMF, ctrl)
@@ -111,7 +112,7 @@ func disconnectSubsys(nqn, hostnqn, ctrl string) (res bool) {
 
 	file, err = os.Open(sysfs_hostnqn_path)
 	if err != nil {
-		klog.Errorf("Disconnect: open file %s err: %v", file.Name(), err)
+		klog.Errorf("Disconnect: open file %s err: %v", sysfs_hostnqn_path, err)
 		return false
 	}
 	defer file.Close()
@@ -136,12 +137,47 @@ func disconnectSubsys(nqn, hostnqn, ctrl string) (res bool) {
 	return true
 }
 
+func disconnectSubsys(nqn, ctrl string) (res bool) {
+	sysfs_nqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
+	sysfs_del_path := fmt.Sprintf("%s/%s/delete_controller", SYS_NVMF, ctrl)
+
+	file, err := os.Open(sysfs_nqn_path)
+	if err != nil {
+		klog.Errorf("Disconnect: open file %s err: %v", file.Name(), err)
+		return false
+	}
+	defer file.Close()
+
+	lines, err := utils.ReadLinesFromFile(file)
+	if err != nil {
+		klog.Errorf("Disconnect: read file %s err: %v", file.Name(), err)
+		return false
+	}
+
+	if lines[0] != nqn {
+		klog.Warningf("Disconnect: not this subsystem, skip")
+		return false
+	}
+
+	err = _disconnect(sysfs_del_path)
+	if err != nil {
+		klog.Errorf("Disconnect: disconnect error: %s", err)
+		return false
+	}
+
+	return true
+}
+
 func disconnectByNqn(nqn, hostnqn string) int {
 	ret := 0
 	if len(nqn) > NVMF_NQN_SIZE {
 		klog.Errorf("Disconnect: nqn %s is too long ", nqn)
 		return -EINVAL
 	}
+
+	// delete hostnqn file
+	hostnqnPath := strings.Join([]string{RUN_NVMF, nqn, b64.StdEncoding.EncodeToString([]byte(hostnqn))}, "/")
+	os.Remove(hostnqnPath)
 
 	devices, err := ioutil.ReadDir(SYS_NVMF)
 	if err != nil {
@@ -150,10 +186,37 @@ func disconnectByNqn(nqn, hostnqn string) int {
 	}
 
 	for _, device := range devices {
-		if disconnectSubsys(nqn, hostnqn, device.Name()) {
+		if disconnectSubsysWithHostNqn(nqn, hostnqn, device.Name()) {
 			ret++
 		}
 	}
+
+	nqnPath := strings.Join([]string{RUN_NVMF, nqn}, "/")
+	hostnqns, err := ioutil.ReadDir(nqnPath)
+	if err != nil {
+		klog.Errorf("Disconnect: readdir %s err: %v", nqnPath, err)
+		return -ENOENT
+	}
+	if len(hostnqns) <= 0 {
+		if ret == 0 {
+			klog.Infof("Fallback because you have no hostnqn supports!")
+
+			devices, err := ioutil.ReadDir(SYS_NVMF)
+			if err != nil {
+				klog.Errorf("Disconnect: readdir %s err: %s", SYS_NVMF, err)
+				return -ENOENT
+			}
+
+			for _, device := range devices {
+				if disconnectSubsys(nqn, device.Name()) {
+					ret++
+				}
+			}
+		}
+
+		os.RemoveAll(nqnPath)
+	}
+
 	return ret
 }
 
@@ -183,7 +246,7 @@ func (c *Connector) Connect() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	klog.Infof("Connect Volume %s success nqn: %s", c.VolumeID, c.TargetNqn)
+	klog.Infof("Connect Volume %s success nqn: %s, hostnqn: %s", c.VolumeID, c.TargetNqn, c.HostNqn)
 	retries := int(c.RetryCount / c.CheckInterval)
 	if exists, err := waitForPathToExist(devicePath, retries, int(c.CheckInterval), c.Transport); !exists {
 		klog.Errorf("connect nqn %s error %v, rollback!!!", c.TargetNqn, err)
@@ -194,6 +257,30 @@ func (c *Connector) Connect() (string, error) {
 		return "", err
 	}
 
+	// create nqn directory
+	nqnPath := strings.Join([]string{RUN_NVMF, c.TargetNqn}, "/")
+	if err := os.MkdirAll(nqnPath, 0750); err != nil {
+		klog.Errorf("create nqn directory %s error %v, rollback!!!", c.TargetNqn, err)
+		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
+		if ret < 0 {
+			klog.Errorf("rollback error !!!")
+		}
+		return "", err
+	}
+
+	// create hostnqn file
+	hostnqnPath := strings.Join([]string{RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn))}, "/")
+	file, err := os.Create(hostnqnPath)
+	if err != nil {
+		klog.Errorf("create hostnqn file %s:%s error %v, rollback!!!", c.TargetNqn, c.HostNqn, err)
+		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
+		if ret < 0 {
+			klog.Errorf("rollback error !!!")
+		}
+		return "", err
+	}
+	defer file.Close()
+
 	klog.Infof("After connect we're returning devicePath: %s", devicePath)
 	return devicePath, nil
 }
@@ -201,7 +288,7 @@ func (c *Connector) Connect() (string, error) {
 // we disconnect only by nqn
 func (c *Connector) Disconnect() error {
 	ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
-	if ret == 0 {
+	if ret < 0 {
 		return fmt.Errorf("Disconnect: failed to disconnect by nqn: %s ", c.TargetNqn)
 	}
 
