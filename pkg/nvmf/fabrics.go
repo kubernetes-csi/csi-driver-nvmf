@@ -216,6 +216,8 @@ func disconnectByNqn(nqn, hostnqn string) int {
 						}
 					}
 				}
+
+				return ret
 			}
 		} else {
 			ret++
