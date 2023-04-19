@@ -88,11 +88,11 @@ func _disconnect(sysfs_path string) error {
 }
 
 func disconnectSubsysWithHostNqn(nqn, hostnqn, ctrl string) (res bool) {
-	sysfs_nqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
+	sysfs_subsysnqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
 	sysfs_hostnqn_path := fmt.Sprintf("%s/%s/hostnqn", SYS_NVMF, ctrl)
 	sysfs_del_path := fmt.Sprintf("%s/%s/delete_controller", SYS_NVMF, ctrl)
 
-	file, err := os.Open(sysfs_nqn_path)
+	file, err := os.Open(sysfs_subsysnqn_path)
 	if err != nil {
 		klog.Errorf("Disconnect: open file %s err: %v", file.Name(), err)
 		return false
@@ -138,10 +138,10 @@ func disconnectSubsysWithHostNqn(nqn, hostnqn, ctrl string) (res bool) {
 }
 
 func disconnectSubsys(nqn, ctrl string) (res bool) {
-	sysfs_nqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
+	sysfs_subsysnqn_path := fmt.Sprintf("%s/%s/subsysnqn", SYS_NVMF, ctrl)
 	sysfs_del_path := fmt.Sprintf("%s/%s/delete_controller", SYS_NVMF, ctrl)
 
-	file, err := os.Open(sysfs_nqn_path)
+	file, err := os.Open(sysfs_subsysnqn_path)
 	if err != nil {
 		klog.Errorf("Disconnect: open file %s err: %v", file.Name(), err)
 		return false
