@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
@@ -176,7 +177,7 @@ func disconnectByNqn(nqn, hostnqn string) int {
 	}
 
 	// delete hostnqn file
-	hostnqnPath := strings.Join([]string{RUN_NVMF, nqn, b64.StdEncoding.EncodeToString([]byte(hostnqn))}, "/")
+	hostnqnPath := filepath.Join(RUN_NVMF, nqn, b64.StdEncoding.EncodeToString([]byte(hostnqn)))
 	os.Remove(hostnqnPath)
 
 	devices, err := ioutil.ReadDir(SYS_NVMF)
@@ -191,7 +192,7 @@ func disconnectByNqn(nqn, hostnqn string) int {
 		}
 	}
 
-	nqnPath := strings.Join([]string{RUN_NVMF, nqn}, "/")
+	nqnPath := filepath.Join(RUN_NVMF, nqn)
 	hostnqns, err := ioutil.ReadDir(nqnPath)
 	if err != nil {
 		klog.Errorf("Disconnect: readdir %s err: %v", nqnPath, err)
@@ -258,7 +259,7 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	// create nqn directory
-	nqnPath := strings.Join([]string{RUN_NVMF, c.TargetNqn}, "/")
+	nqnPath := filepath.Join(RUN_NVMF, c.TargetNqn)
 	if err := os.MkdirAll(nqnPath, 0750); err != nil {
 		klog.Errorf("create nqn directory %s error %v, rollback!!!", c.TargetNqn, err)
 		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
@@ -269,7 +270,7 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	// create hostnqn file
-	hostnqnPath := strings.Join([]string{RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn))}, "/")
+	hostnqnPath := filepath.Join(RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn)))
 	file, err := os.Create(hostnqnPath)
 	if err != nil {
 		klog.Errorf("create hostnqn file %s:%s error %v, rollback!!!", c.TargetNqn, c.HostNqn, err)
