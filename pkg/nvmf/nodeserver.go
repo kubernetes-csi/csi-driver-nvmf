@@ -32,11 +32,6 @@ type NodeServer struct {
 }
 
 func NewNodeServer(d *driver) *NodeServer {
-	if err := os.MkdirAll(RUN_NVMF, 0750); err != nil {
-		klog.Errorf("NewNodeServer: failed to mkdir %s, error: %v", RUN_NVMF, err)
-		return nil
-	}
-
 	return &NodeServer{
 		Driver: d,
 	}
