@@ -88,7 +88,7 @@ func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeReques
 		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
 		exec:         exec.New(),
 		targetPath:   req.GetTargetPath(),
-		connector:    getNvmfConnector(nvmfInfo),
+		connector:    getNvmfConnector(nvmfInfo, req.GetTargetPath()),
 	}
 }
 
@@ -142,11 +142,6 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 
 	// Tips: use k8s mounter to mount fs and only support "ext4"
 	var options []string
-	if nm.readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
 	options = append(options, nm.mountOptions...)
 	err = nm.mounter.FormatAndMount(devicePath, mntPath, nm.fsType, options)
 	if err != nil {
@@ -161,24 +156,15 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, nm nvmfDiskMounter) (string, 
 }
 
 func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) error {
-	_, cnt, err := mount.GetDeviceNameFromMount(num.mounter, targetPath)
-	if err != nil {
-		klog.Errorf("nvmf detach disk: failed to get device from mnt: %s\nError: %v", targetPath, err)
-		return err
-	}
 	if pathExists, pathErr := mount.PathExists(targetPath); pathErr != nil {
 		return fmt.Errorf("Error checking if path exists: %v", pathErr)
 	} else if !pathExists {
 		klog.Warningf("Warning: Unmount skipped because path does not exist: %v", targetPath)
 		return nil
 	}
-	if err = num.mounter.Unmount(targetPath); err != nil {
+	if err := num.mounter.Unmount(targetPath); err != nil {
 		klog.Errorf("iscsi detach disk: failed to unmount: %s\nError: %v", targetPath, err)
 		return err
-	}
-	cnt--
-	if cnt != 0 {
-		return nil
 	}
 
 	connector, err := GetConnectorFromFile(targetPath + ".json")
