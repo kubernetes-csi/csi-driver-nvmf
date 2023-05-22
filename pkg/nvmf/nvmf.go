@@ -18,6 +18,8 @@ package nvmf
 
 import (
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"os"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -67,15 +69,19 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, devicePath string) error {
 	if req.GetVolumeCapability().GetBlock() != nil {
 		_, err := os.Lstat(targetPath)
 		if os.IsNotExist(err) {
+			klog.Errorf("AttachDisk: Block VolumeID %s, Path %s is not exist, so create one.", req.GetVolumeId(), req.GetTargetPath())
 			if err = makeFile(targetPath); err != nil {
-				return fmt.Errorf("failed to create target path, err: %s", err.Error())
+				if removeErr := os.Remove(targetPath); removeErr != nil {
+					return status.Errorf(codes.Internal, "Could not remove mount target %q: %v", targetPath, removeErr)
+				}
+				return status.Errorf(codes.Internal, "Could not create file %q: %v", targetPath, err)
 			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to check if the target block file exist, err: %s", err.Error())
 		}
 
-		notMounted, err := mounter.IsLikelyNotMountPoint(targetPath)
+		notMounted, err := mount.IsNotMountPoint(mounter, targetPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				return fmt.Errorf("error checking path %s for mount: %w", targetPath, err)
@@ -88,7 +94,7 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, devicePath string) error {
 			return nil
 		}
 
-		options := []string{""}
+		options := []string{"bind"}
 		if err = mounter.Mount(devicePath, targetPath, "", options); err != nil {
 			klog.Errorf("AttachDisk: failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
 			return fmt.Errorf("failed to mount Device %s to %s with options: %v", devicePath, targetPath, options)
@@ -132,27 +138,24 @@ func AttachDisk(req *csi.NodePublishVolumeRequest, devicePath string) error {
 	return nil
 }
 
-func DetachDisk(volumeID string, targetPath string) error {
+func DetachDisk(targetPath string) (err error) {
 	mounter := mount.New("")
 
-	_, cnt, err := mount.GetDeviceNameFromMount(mounter, targetPath)
-	if err != nil {
-		klog.Errorf("nvmf detach disk: failed to get device from mnt: %s\nError: %v", targetPath, err)
-		return err
+	if notMnt, err := mount.IsNotMountPoint(mounter, targetPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("Check target path error: %w.", err)
+		}
+	} else if !notMnt {
+		if err = mounter.Unmount(targetPath); err != nil {
+			klog.Errorf("nvmf detach disk: failed to unmount: %s\nError: %v", targetPath, err)
+			return err
+		}
 	}
-	if pathExists, pathErr := mount.PathExists(targetPath); pathErr != nil {
-		return fmt.Errorf("Error checking if path exists: %v", pathErr)
-	} else if !pathExists {
-		klog.Warningf("Warning: Unmount skipped because path does not exist: %v", targetPath)
-		return nil
-	}
-	if err = mounter.Unmount(targetPath); err != nil {
-		klog.Errorf("iscsi detach disk: failed to unmount: %s\nError: %v", targetPath, err)
-		return err
-	}
-	cnt--
-	if cnt != 0 {
-		return nil
+
+	// Delete the mount point
+
+	if err = os.RemoveAll(targetPath); err != nil {
+		return fmt.Errorf("remove target path: %w", err)
 	}
 
 	return nil

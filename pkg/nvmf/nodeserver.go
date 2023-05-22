@@ -128,7 +128,7 @@ func (n *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpub
 
 	// Detach disk
 	targetPath := req.GetTargetPath()
-	err := DetachDisk(req.VolumeId, targetPath)
+	err := DetachDisk(targetPath)
 	if err != nil {
 		klog.Errorf("VolumeID: %s detachDisk err: %v", req.VolumeId, err)
 		return nil, err
