@@ -17,8 +17,6 @@ limitations under the License.
 package nvmf
 
 import (
-	"fmt"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -115,5 +113,5 @@ func (d *driver) ValidateControllerServiceRequest(c csi.ControllerServiceCapabil
 			return nil
 		}
 	}
-	return status.Error(codes.InvalidArgument, fmt.Sprintf("%s", c))
+	return status.Error(codes.InvalidArgument, c.String())
 }
