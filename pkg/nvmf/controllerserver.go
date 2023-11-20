@@ -21,7 +21,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 type ControllerServer struct {
@@ -35,8 +35,8 @@ func NewControllerServer(d *driver) *ControllerServer {
 	}
 }
 
-//  You should realize your volume provider here, such as requesting the Cloud to create an NVMf block and
-//  returning specific information to you
+// You should realize your volume provider here, such as requesting the Cloud to create an NVMf block and
+// returning specific information to you
 func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "CreateVolume should implement by yourself. ")
 }

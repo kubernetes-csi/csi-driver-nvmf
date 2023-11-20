@@ -26,7 +26,7 @@ import (
 	"strings"
 
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 type Connector struct {

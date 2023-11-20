@@ -18,7 +18,7 @@
 
 # disable e2e tests for now
 CSI_PROW_E2E_REPO=none
-
+CSI_PROW_GO_VERSION_BUILD=1.19
 # Only these tests make sense for unit test
 : ${CSI_PROW_TESTS:="unit"}
 
