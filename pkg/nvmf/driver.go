@@ -99,8 +99,6 @@ func (d *driver) AddControllerServiceCapabilities(cl []csi.ControllerServiceCapa
 	}
 
 	d.cscap = csc
-
-	return
 }
 
 func (d *driver) ValidateControllerServiceRequest(c csi.ControllerServiceCapability_RPC_Type) error {
