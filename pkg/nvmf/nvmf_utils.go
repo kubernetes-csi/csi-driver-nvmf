@@ -32,15 +32,10 @@ import (
 
 func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, deviceTransport string) (bool, error) {
 	for i := 0; i < maxRetries; i++ {
-		if deviceTransport == "tcp" {
-			exist := utils.IsFileExisting(devicePath)
-			if exist {
-				return true, nil
-			}
-		} else {
-			return false, fmt.Errorf("connect only support tcp")
+		exist := utils.IsFileExisting(devicePath)
+		if exist {
+			return true, nil
 		}
-
 		if i == maxRetries-1 {
 			break
 		}

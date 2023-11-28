@@ -20,7 +20,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,7 +69,7 @@ func _connect(argStr string) error {
 		return err
 	}
 	// todo: read file to verify
-	lines, err := utils.ReadLinesFromFile(file)
+	lines, _ := utils.ReadLinesFromFile(file)
 	klog.Infof("Connect: read string %s", lines)
 	return nil
 }
@@ -182,7 +181,7 @@ func disconnectByNqn(nqn, hostnqn string) int {
 
 	// delete nqn directory if has no hostnqn files
 	nqnPath := filepath.Join(RUN_NVMF, nqn)
-	hostnqns, err := ioutil.ReadDir(nqnPath)
+	hostnqns, err := os.ReadDir(nqnPath)
 	if err != nil {
 		klog.Errorf("Disconnect: readdir %s err: %v", nqnPath, err)
 		return -ENOENT
@@ -191,7 +190,7 @@ func disconnectByNqn(nqn, hostnqn string) int {
 		os.RemoveAll(nqnPath)
 	}
 
-	devices, err := ioutil.ReadDir(SYS_NVMF)
+	devices, err := os.ReadDir(SYS_NVMF)
 	if err != nil {
 		klog.Errorf("Disconnect: readdir %s err: %s", SYS_NVMF, err)
 		return -ENOENT
@@ -204,7 +203,7 @@ func disconnectByNqn(nqn, hostnqn string) int {
 
 				// disconnect all controllers if has no hostnqn files
 				if len(hostnqns) <= 0 {
-					devices, err := ioutil.ReadDir(SYS_NVMF)
+					devices, err := os.ReadDir(SYS_NVMF)
 					if err != nil {
 						klog.Errorf("Disconnect: readdir %s err: %s", SYS_NVMF, err)
 						return -ENOENT
@@ -328,7 +327,7 @@ func removeConnectorFile(targetPath string) {
 }
 
 func GetConnectorFromFile(filePath string) (*Connector, error) {
-	f, err := ioutil.ReadFile(filePath)
+	f, err := os.ReadFile(filePath)
 	if err != nil {
 		return &Connector{}, err
 

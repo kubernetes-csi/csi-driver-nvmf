@@ -120,6 +120,10 @@ func (n *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVo
 	scanPath := parseDeviceToControllerPath(deviceName)
 	if utils.IsFileExisting(scanPath) {
 		file, err := os.OpenFile(scanPath, os.O_RDWR|os.O_TRUNC, 0766)
+		if err != nil {
+			klog.Errorf("NodeExpandVolume: open scan path %s error: %v", scanPath, err)
+			return nil, status.Errorf(codes.Internal, "NodeExpandVolume: open scan path %s error: %v", scanPath, err)
+		}
 		err = utils.WriteStringToFile(file, "1")
 		if err != nil {
 			klog.Errorf("NodeExpandVolume: Rescan error: %v", err)
