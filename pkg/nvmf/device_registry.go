@@ -18,12 +18,14 @@ package nvmf
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -35,6 +37,8 @@ type VolumeInfo struct {
 
 // DeviceRegistry manages NVMe device discovery and allocation
 type DeviceRegistry struct {
+	Driver *driver
+
 	// Protects device registry data
 	mutex sync.RWMutex
 
@@ -46,15 +50,89 @@ type DeviceRegistry struct {
 
 	// Map from volume name to NQN for allocated devices
 	volumeToNQN map[string]string
+
+	// Tracks if initial sync from etcd has been performed
+	initialSyncDone bool
 }
 
 // NewDeviceRegistry creates a new device registry
-func NewDeviceRegistry() *DeviceRegistry {
+func NewDeviceRegistry(d *driver) *DeviceRegistry {
 	return &DeviceRegistry{
+		Driver:          d,
 		devices:         make(map[string]*VolumeInfo),
 		availableNQNs:   make(map[string]struct{}),
 		volumeToNQN:     make(map[string]string),
+		initialSyncDone: false,
 	}
+}
+
+// EnsureInitialSync ensures the initial sync from Kubernetes API has been performed
+func (r *DeviceRegistry) EnsureInitialSync(ctx context.Context) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.initialSyncDone {
+		return nil
+	}
+
+	klog.V(4).Info("Performing initial sync from existing PersistentVolumes")
+
+	if err := r.SyncFromPV(ctx); err != nil {
+		return fmt.Errorf("failed to sync from Kubernetes API: %v", err)
+	}
+
+	r.initialSyncDone = true
+
+	klog.V(4).Infof("Successfully synced %d volumes from Kubernetes API", len(r.devices))
+	return nil
+}
+
+// SyncFromPV synchronizes volume allocation data from Kubernetes API server to the local device registry.
+// It retrieves all PersistentVolumes provisioned by this driver through the Kubernetes API and updates
+// the registry accordingly, ensuring the controller's state reflects the actual allocations in the cluster.
+func (r *DeviceRegistry) SyncFromPV(ctx context.Context) error {
+	list, err := r.Driver.kubeClient.
+		CoreV1().
+		PersistentVolumes().
+		List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.Errorf("Failed to list PersistentVolumes: %v", err)
+		return err
+	}
+
+	for _, pv := range list.Items {
+		// Check if the PV was provisioned by this driver using annotations
+		provisionedBy, exists := pv.Annotations["pv.kubernetes.io/provisioned-by"]
+		if !exists || provisionedBy != r.Driver.name {
+			continue
+		}
+
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == r.Driver.name {
+			nqn := pv.Spec.CSI.VolumeHandle
+			if nqn, exists := r.volumeToNQN[pv.Name]; exists {
+				klog.Errorf("Volume %s is already existing in the registry with NQN %s", pv.Name, nqn)
+				continue
+			}
+
+			// Update the volume info with the allocated device
+			r.devices[nqn] = &VolumeInfo{
+				nvmfDiskInfo: &nvmfDiskInfo{
+					VolName:   pv.Name,
+					Nqn:       nqn,
+					Transport: pv.Spec.CSI.VolumeAttributes[paramType],
+					Addr:      pv.Spec.CSI.VolumeAttributes["targetTrAddr"],
+					Port:      pv.Spec.CSI.VolumeAttributes["targetTrPort"],
+				},
+				IsAllocated: true,
+			}
+
+			klog.V(4).Infof("Recovered device mapping: [PV] %s → [Device NQN] %s", pv.Name, nqn)
+			r.volumeToNQN[pv.Name] = nqn
+
+		}
+	}
+
+	return nil
 }
 
 // DiscoverDevices performs NVMe device discovery

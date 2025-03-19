@@ -36,10 +36,27 @@ type ControllerServer struct {
 
 // create controller server
 func NewControllerServer(d *driver) *ControllerServer {
-	return &ControllerServer{
+	server := &ControllerServer{
 		Driver:         d,
-		deviceRegistry: NewDeviceRegistry(),
+		deviceRegistry: NewDeviceRegistry(d),
 	}
+
+	// Perform initial device discovery and etcd sync in the background
+	go server.initializeRegistry()
+
+	return server
+}
+
+// initializeRegistry initializes the device registry with discovery and etcd sync
+func (c *ControllerServer) initializeRegistry() {
+	ctx := context.Background()
+
+	// Initial etcd sync - loads allocation data from persistent storage
+	if err := c.deviceRegistry.EnsureInitialSync(ctx); err != nil {
+		klog.Errorf("Initial etcd sync failed: %v", err)
+	}
+
+	klog.Info("Device registry initialization completed")
 }
 
 // CreateVolume provisions a new volume
@@ -60,6 +77,12 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 	parameters := req.GetParameters()
 	if parameters == nil {
 		parameters = make(map[string]string)
+	}
+
+	// Ensure initial etcd sync has been done (non-blocking if already done)
+	if err := c.deviceRegistry.EnsureInitialSync(ctx); err != nil {
+		klog.Warningf("Failed to ensure etcd sync: %v", err)
+		// Continue anyway - not critical for operation
 	}
 
 	// Discover NVMe devices if needed

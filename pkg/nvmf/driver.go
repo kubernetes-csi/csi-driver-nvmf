@@ -20,6 +20,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
@@ -40,6 +41,8 @@ type driver struct {
 
 	cap   []*csi.VolumeCapability_AccessMode
 	cscap []*csi.ControllerServiceCapability
+
+	kubeClient kubernetes.Interface
 }
 
 // NewDriver create the identity/node
@@ -50,6 +53,14 @@ func NewDriver(conf *GlobalConfig) *driver {
 	}
 
 	klog.Infof("Driver: %v version: %v", conf.DriverName, conf.Version)
+
+	// Create kubernetes client
+	kubeClient, err := utils.GetK8sClient()
+	if err != nil {
+		klog.Fatalf("Failed to create kubernetes client: %v", err)
+		return nil
+	}
+
 	return &driver{
 		name:         conf.DriverName,
 		version:      conf.Version,
@@ -57,6 +68,7 @@ func NewDriver(conf *GlobalConfig) *driver {
 		region:       conf.Region,
 		volumeMapDir: conf.NVMfVolumeMapDir,
 		volumeLocks:  utils.NewVolumeLocks(),
+		kubeClient:   kubeClient,
 	}
 }
 
