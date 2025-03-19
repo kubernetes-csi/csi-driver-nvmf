@@ -21,6 +21,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
+
+	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 )
 
 type driver struct {
@@ -30,6 +32,7 @@ type driver struct {
 
 	region       string
 	volumeMapDir string
+	volumeLocks  *utils.VolumeLocks
 
 	idServer         *IdentityServer
 	nodeServer       *NodeServer
@@ -53,6 +56,7 @@ func NewDriver(conf *GlobalConfig) *driver {
 		nodeId:       conf.NodeID,
 		region:       conf.Region,
 		volumeMapDir: conf.NVMfVolumeMapDir,
+		volumeLocks:  utils.NewVolumeLocks(),
 	}
 }
 

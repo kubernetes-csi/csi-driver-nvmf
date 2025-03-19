@@ -92,6 +92,71 @@ func (r *DeviceRegistry) DiscoverDevices(params map[string]string) error {
 	return nil
 }
 
+// AllocateDevice selects and allocates a device for a volume
+func (r *DeviceRegistry) AllocateDevice(volumeName string) (*VolumeInfo, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	// Check this volume is already allocated
+	if nqn, exists := r.volumeToNQN[volumeName]; exists {
+		return nil, fmt.Errorf("already allocated. PV: %s, device: %s", volumeName, nqn)
+	}
+
+	// Check if any devices are available
+	if len(r.availableNQNs) == 0 {
+		return nil, fmt.Errorf("no available devices found")
+	}
+
+	var nqn string
+	for n := range r.availableNQNs {
+		if r.devices[n].IsAllocated {
+			klog.Errorf("Device %s is marked as available but is already allocated. Device details: %+v", n, r.devices[n])
+			continue
+		}
+
+		nqn = n
+		break
+	}
+
+	if nqn == "" {
+		return nil, fmt.Errorf("no available devices found")
+	}
+
+	// Update tracking maps
+	delete(r.availableNQNs, nqn)
+	r.volumeToNQN[volumeName] = nqn
+	device := r.devices[nqn]
+	device.VolName = volumeName
+	device.IsAllocated = true
+
+	klog.V(4).Infof("[%d/%d] Allocated volume %s (NQN %s)", len(r.devices) - len(r.availableNQNs), len(r.devices), volumeName, nqn)
+
+	return device, nil
+}
+
+// ReleaseDevice releases a device allocation
+func (r *DeviceRegistry) ReleaseDevice(nqn string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+
+	device, exists := r.devices[nqn]
+	if !exists {
+		// CSI spec requires idempotency: return success even if volume doesn't exist
+		// This allows safe retries and prevents errors when volume was already deleted
+		klog.Infof("Volume %s not found", nqn)
+		return
+	}
+
+	// Update tracking maps
+	device.IsAllocated = false
+	delete(r.volumeToNQN, device.VolName)
+	r.availableNQNs[nqn] = struct{}{}
+	device.VolName = ""
+
+	klog.V(4).Infof("[%d/%d] Released volume %s", len(r.devices) - len(r.availableNQNs), len(r.devices), nqn)
+}
+
 // discoverNVMeDevices runs NVMe discovery and returns available targets
 func discoverNVMeDevices(params map[string]string) (map[string]*nvmfDiskInfo, error) {
 	if params == nil {

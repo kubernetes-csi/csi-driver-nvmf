@@ -22,7 +22,21 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 )
+
+type VolumeLocks struct {
+	locks sets.String //nolint:staticcheck
+	mux   sync.Mutex
+}
+
+func NewVolumeLocks() *VolumeLocks {
+	return &VolumeLocks{
+		locks: sets.NewString(),
+	}
+}
 
 // IsFileExisting check file exist in volume driver
 func IsFileExisting(filename string) bool {
@@ -35,6 +49,22 @@ func IsFileExisting(filename string) bool {
 		return false
 	}
 	return true
+}
+
+func (vl *VolumeLocks) TryAcquire(volumeID string) bool {
+	vl.mux.Lock()
+	defer vl.mux.Unlock()
+	if vl.locks.Has(volumeID) {
+		return false
+	}
+	vl.locks.Insert(volumeID)
+	return true
+}
+
+func (vl *VolumeLocks) Release(volumeID string) {
+	vl.mux.Lock()
+	defer vl.mux.Unlock()
+	vl.locks.Delete(volumeID)
 }
 
 func ParseEndpoint(ep string) (string, string, error) {

@@ -25,6 +25,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	UseActualDeviceCapacity int64 = 0 // Use the actual device capacity
+)
+
 type ControllerServer struct {
 	Driver         *driver
 	deviceRegistry *DeviceRegistry
@@ -64,11 +68,27 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 		return nil, status.Errorf(codes.Internal, "device discovery failed: %v", err)
 	}
 
-	// TODO (cheolho.kang): In a future implementation, this method would:
-	// 1. Allocate a device for the volume
-	// 2. Store the allocation info in etcd
-	// 3. Return the allocated device information in the response
-	return nil, status.Errorf(codes.Unimplemented, "CreateVolume should implement by yourself. ")
+	// Acquire volume lock to prevent concurrent operations
+	if acquired := c.Driver.volumeLocks.TryAcquire(volumeName); !acquired {
+		return nil, status.Errorf(codes.Aborted, "concurrent operation in progress for volume: %s", volumeName)
+	}
+	defer c.Driver.volumeLocks.Release(volumeName)
+
+	// Allocate a device
+	allocatedDevice, err := c.deviceRegistry.AllocateDevice(volumeName)
+	if err != nil {
+		klog.Errorf("Failed to allocate device for volume %s: %v", volumeName, err)
+		return nil, status.Errorf(codes.ResourceExhausted, "no suitable device available: %v", err)
+	}
+
+	return &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      allocatedDevice.Nqn,
+			CapacityBytes: UseActualDeviceCapacity, // PV will use the actual capacity
+			VolumeContext: parameters,
+			ContentSource: req.GetVolumeContentSource(),
+		},
+	}, nil
 }
 
 // DeleteVolume deletes a volume
@@ -80,7 +100,20 @@ func (c *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolu
 
 	klog.V(4).Infof("DeleteVolume called for volume ID %s", volumeID)
 
-	return nil, status.Errorf(codes.Unimplemented, "DeleteVolume should implement by yourself. ")
+	// Acquire lock to prevent concurrent operations on this volume
+	if acquired := c.Driver.volumeLocks.TryAcquire(volumeID); !acquired {
+		return nil, status.Errorf(codes.Aborted, "concurrent operation in progress for volume: %s", volumeID)
+	}
+	defer c.Driver.volumeLocks.Release(volumeID)
+
+	// Find the volume by NQN
+	// Note: volumeID is expected to be in NQN (NVMe Qualified Name) format.
+	// This assumption is valid because in CreateVolume, we assigned the device's NQN
+	// as the volumeID when returning the CreateVolumeResponse.
+	nqn := volumeID
+	c.deviceRegistry.ReleaseDevice(nqn)
+
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 func (c *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
