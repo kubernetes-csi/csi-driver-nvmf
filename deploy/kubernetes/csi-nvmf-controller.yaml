@@ -51,13 +51,18 @@ spec:
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
+          securityContext:
+            privileged: true
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
             - name: volume-map
               mountPath: /var/lib/kubelet/plugins/csi.nvmf.com/volumes
               mountPropagation: "HostToContainer"
-
+            - name: dev
+              mountPath: /dev
+            - name: sys
+              mountPath: /sys
       volumes:
         - name: socket-dir
           emptyDir: {}
@@ -65,5 +70,9 @@ spec:
           hostPath:
             path:  /var/lib/kubelet/plugins/csi.nvmf.com/volumes
             type: DirectoryOrCreate
-
-
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: /sys

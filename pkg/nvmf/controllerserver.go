@@ -26,13 +26,15 @@ import (
 )
 
 type ControllerServer struct {
-	Driver *driver
+	Driver         *driver
+	deviceRegistry *DeviceRegistry
 }
 
 // create controller server
 func NewControllerServer(d *driver) *ControllerServer {
 	return &ControllerServer{
-		Driver: d,
+		Driver:         d,
+		deviceRegistry: NewDeviceRegistry(),
 	}
 }
 
@@ -50,6 +52,22 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 
 	klog.V(4).Infof("CreateVolume called with name: %s", volumeName)
 
+	// Extract volume parameters
+	parameters := req.GetParameters()
+	if parameters == nil {
+		parameters = make(map[string]string)
+	}
+
+	// Discover NVMe devices if needed
+	if err := c.deviceRegistry.DiscoverDevices(parameters); err != nil {
+		klog.Errorf("Failed to discover NVMe devices: %v", err)
+		return nil, status.Errorf(codes.Internal, "device discovery failed: %v", err)
+	}
+
+	// TODO (cheolho.kang): In a future implementation, this method would:
+	// 1. Allocate a device for the volume
+	// 2. Store the allocation info in etcd
+	// 3. Return the allocated device information in the response
 	return nil, status.Errorf(codes.Unimplemented, "CreateVolume should implement by yourself. ")
 }
 

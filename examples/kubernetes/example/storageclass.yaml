@@ -2,6 +2,10 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: csi-nvmf-sc
+parameters:
+  targetTrAddr: "192.168.122.18"
+  targetTrPort: "49153"
+  targetTrType: "tcp"
 provisioner: csi.nvmf.com
 reclaimPolicy: Delete
 allowVolumeExpansion: true

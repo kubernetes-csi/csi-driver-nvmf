@@ -26,13 +26,20 @@ import (
 	"k8s.io/utils/mount"
 )
 
+// NVMe-oF parameter keys
+const (
+	paramAddr = "targetTrAddr" // Target address parameter
+	paramPort = "targetTrPort" // Target port parameter
+	paramType = "targetTrType" // Transport type parameter
+)
+
 type nvmfDiskInfo struct {
 	VolName    string
-	Nqn        string
-	Addr       string
-	Port       string
+	Nqn        string `json:"subnqn"`
+	Addr       string `json:"traddr"`
+	Port       string `json:"trsvcid"`
 	DeviceUUID string
-	Transport  string
+	Transport  string `json:"trtype"`
 }
 
 type nvmfDiskMounter struct {
@@ -55,9 +62,9 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	volName := req.GetVolumeId()
 
 	volOpts := req.GetVolumeContext()
-	targetTrAddr := volOpts["targetTrAddr"]
-	targetTrPort := volOpts["targetTrPort"]
-	targetTrType := volOpts["targetTrType"]
+	targetTrAddr := volOpts[paramAddr]
+	targetTrPort := volOpts[paramPort]
+	targetTrType := volOpts[paramType]
 	deviceUUID := volOpts["deviceUUID"]
 	nqn := volOpts["nqn"]
 
