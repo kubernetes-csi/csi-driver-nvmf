@@ -17,8 +17,9 @@ limitations under the License.
 package nvmf
 
 import (
+	"context"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
@@ -35,13 +36,32 @@ func NewControllerServer(d *driver) *ControllerServer {
 	}
 }
 
-// You should realize your volume provider here, such as requesting the Cloud to create an NVMf block and
-// returning specific information to you
+// CreateVolume provisions a new volume
 func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	volumeName := req.GetName()
+	if !isValidVolumeName(volumeName) {
+		return nil, status.Error(codes.InvalidArgument, "volume Name must be provided")
+	}
+
+	cap := req.GetVolumeCapabilities()
+	if !isValidVolumeCapabilities(cap) {
+		return nil, status.Error(codes.InvalidArgument, "volume Capabilities are invalid")
+	}
+
+	klog.V(4).Infof("CreateVolume called with name: %s", volumeName)
+
 	return nil, status.Errorf(codes.Unimplemented, "CreateVolume should implement by yourself. ")
 }
 
+// DeleteVolume deletes a volume
 func (c *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	volumeID := req.GetVolumeId()
+	if !isValidVolumeID(volumeID) {
+		return nil, status.Error(codes.InvalidArgument, "volume ID must be provided")
+	}
+
+	klog.V(4).Infof("DeleteVolume called for volume ID %s", volumeID)
+
 	return nil, status.Errorf(codes.Unimplemented, "DeleteVolume should implement by yourself. ")
 }
 
@@ -91,4 +111,42 @@ func (c *ControllerServer) DeleteSnapshot(ctx context.Context, request *csi.Dele
 
 func (c *ControllerServer) ListSnapshots(ctx context.Context, request *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "ListSnapshots not implement")
+}
+
+func isValidVolumeName(volumeName string) bool {
+	if volumeName == "" {
+		klog.Error("Volume Name cannot be empty")
+		return false
+	}
+
+	return true
+}
+
+func isValidVolumeID(volumeID string) bool {
+	if volumeID == "" {
+		klog.Error("Volume ID cannot be empty")
+		return false
+	}
+
+	return true
+}
+
+func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
+	if len(volCaps) == 0 {
+		klog.Error("Volume Capabilities not provided")
+		return false
+	}
+
+	for _, cap := range volCaps {
+		if cap.GetBlock() != nil && cap.GetMount() != nil {
+			klog.Error("Cannot specify both block and mount access types")
+			return false
+		}
+		if cap.GetBlock() == nil && cap.GetMount() == nil {
+			klog.Error("Must specify either block or mount access type")
+			return false
+		}
+	}
+
+	return true
 }
