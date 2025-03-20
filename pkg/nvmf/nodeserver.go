@@ -74,11 +74,15 @@ func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 	}
 
 	// 2. attachdisk
-	nvmfInfo, err := getNVMfDiskInfo(req)
+	// Create mounter for the volume to be published
+	parameter := req.GetVolumeContext()
+	volumeID := req.GetVolumeId()
+	targetPath := req.GetTargetPath()
+	nvmfInfo, err := getNVMfDiskInfo(volumeID, parameter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: get NVMf disk info from req err: %v", err)
 	}
-	diskMounter := getNVMfDiskMounter(nvmfInfo, req)
+	diskMounter := getNVMfDiskMounter(nvmfInfo, targetPath, req.GetVolumeCapability())
 
 	// attachDisk realize connect NVMf disk and mount to docker path
 	_, err = AttachDisk(req, *diskMounter)
@@ -100,7 +104,8 @@ func (n *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpub
 		return nil, status.Error(codes.InvalidArgument, "NodeUnpublishVolume Staging TargetPath must be provided")
 	}
 	targetPath := req.GetTargetPath()
-	err := DetachDisk(req.VolumeId, getNVMfDiskUnMounter(req), targetPath)
+	unmounter := getNVMfDiskUnMounter()
+	err := DetachDisk(req.VolumeId, unmounter, targetPath)
 	if err != nil {
 		klog.Errorf("NodeUnpublishVolume: VolumeID: %s detachDisk err: %v", req.VolumeId, err)
 		return nil, err

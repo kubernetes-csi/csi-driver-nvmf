@@ -44,7 +44,7 @@ type nvmfDiskInfo struct {
 
 type nvmfDiskMounter struct {
 	*nvmfDiskInfo
-	readOnly     bool
+	isBlock      bool
 	fsType       string
 	mountOptions []string
 	mounter      *mount.SafeFormatAndMount
@@ -58,22 +58,24 @@ type nvmfDiskUnMounter struct {
 	exec    exec.Interface
 }
 
-func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
-	volName := req.GetVolumeId()
+// getNVMfDiskInfo extracts NVMf disk information from the provided parameters
+func getNVMfDiskInfo(volID string, params map[string]string) (*nvmfDiskInfo, error) {
+	if params == nil {
+		return nil, fmt.Errorf("discovery parameters are nil")
+	}
 
-	volOpts := req.GetVolumeContext()
-	targetTrAddr := volOpts[paramAddr]
-	targetTrPort := volOpts[paramPort]
-	targetTrType := volOpts[paramType]
-	deviceUUID := volOpts["deviceUUID"]
-	nqn := volOpts["nqn"]
+	targetTrAddr := params[paramAddr]
+	targetTrPort := params[paramPort]
+	targetTrType := params[paramType]
+	deviceUUID := params["deviceUUID"]
+	nqn := volID
 
 	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" || deviceUUID == "" {
-		return nil, fmt.Errorf("some nvme target info is missing, volID: %s ", volName)
+		return nil, fmt.Errorf("some nvme target info is missing, volID: %s ", volID)
 	}
 
 	return &nvmfDiskInfo{
-		VolName:    volName,
+		VolName:    volID,
 		Addr:       targetTrAddr,
 		Port:       targetTrPort,
 		Nqn:        nqn,
@@ -82,24 +84,22 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	}, nil
 }
 
-func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeRequest) *nvmfDiskMounter {
-	readOnly := req.GetReadonly()
-	fsType := req.GetVolumeCapability().GetMount().GetFsType()
-	mountOptions := req.GetVolumeCapability().GetMount().GetMountFlags()
-
+// getNVMfDiskMounter creates and configures a new disk mounter
+func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, targetPath string, cap *csi.VolumeCapability) *nvmfDiskMounter {
 	return &nvmfDiskMounter{
 		nvmfDiskInfo: nvmfInfo,
-		readOnly:     readOnly,
-		fsType:       fsType,
-		mountOptions: mountOptions,
+		isBlock:      cap.GetBlock() != nil,
+		fsType:       cap.GetMount().GetFsType(),
+		mountOptions: cap.GetMount().GetMountFlags(),
 		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
 		exec:         exec.New(),
-		targetPath:   req.GetTargetPath(),
-		connector:    getNvmfConnector(nvmfInfo, req.GetTargetPath()),
+		targetPath:   targetPath,
+		connector:    getNvmfConnector(nvmfInfo, targetPath),
 	}
 }
 
-func getNVMfDiskUnMounter(req *csi.NodeUnpublishVolumeRequest) *nvmfDiskUnMounter {
+// getNVMfDiskUnMounter creates a new disk unmounter
+func getNVMfDiskUnMounter() *nvmfDiskUnMounter {
 	return &nvmfDiskUnMounter{
 		mounter: mount.New(""),
 		exec:    exec.New(),
