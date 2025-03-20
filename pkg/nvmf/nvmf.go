@@ -129,18 +129,8 @@ func AttachDisk(volumeID string, connector *Connector) (string, error) {
 	return devicePath, nil
 }
 
-func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) error {
-	if pathExists, pathErr := mount.PathExists(targetPath); pathErr != nil {
-		return fmt.Errorf("Error checking if path exists: %v", pathErr)
-	} else if !pathExists {
-		klog.Warningf("Warning: Unmount skipped because path does not exist: %v", targetPath)
-		return nil
-	}
-	if err := num.mounter.Unmount(targetPath); err != nil {
-		klog.Errorf("iscsi detach disk: failed to unmount: %s\nError: %v", targetPath, err)
-		return err
-	}
-
+// DetachDisk disconnects an NVMe-oF disk
+func DetachDisk(volumeID string, targetPath string) error {
 	connector, err := GetConnectorFromFile(targetPath + ".json")
 	if err != nil {
 		klog.Errorf("DetachDisk: failed to get connector from path %s Error: %v", targetPath, err)
@@ -151,7 +141,7 @@ func DetachDisk(volumeID string, num *nvmfDiskUnMounter, targetPath string) erro
 		klog.Errorf("DetachDisk: VolumeID: %s failed to disconnect, Error: %v", volumeID, err)
 		return err
 	}
-	removeConnectorFile(targetPath)
+
 	return nil
 }
 

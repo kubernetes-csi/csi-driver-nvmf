@@ -106,20 +106,25 @@ func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 }
 
 func (n *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	klog.Infof("NodeUnpublishVolume: Starting unpublish volume, %s, %v", req.VolumeId, req)
-
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnpublishVolume VolumeID must be provided")
 	}
 	if req.TargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnpublishVolume Staging TargetPath must be provided")
 	}
+
+	// Acquire lock to prevent concurrent operations on this server
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+
+	klog.V(4).Infof("NodeUnpublishVolume called for volume %s", req.VolumeId)
+
+	// Unmount the volume
 	targetPath := req.GetTargetPath()
 	unmounter := getNVMfDiskUnMounter()
-	err := DetachDisk(req.VolumeId, unmounter, targetPath)
+	err := UnmountVolume(targetPath, unmounter)
 	if err != nil {
-		klog.Errorf("NodeUnpublishVolume: VolumeID: %s detachDisk err: %v", req.VolumeId, err)
-		return nil, err
+		return nil, status.Errorf(codes.Unavailable, "NodeUnpublishVolume: failed to unmount volume. VolumeID: %s detachDisk err: %v", req.VolumeId, err)
 	}
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
@@ -199,14 +204,40 @@ func (n *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 // NodeUnstageVolume detaches the NVMe device from the node
 func (n *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	// Validate parameters
-	if req.VolumeId == "" {
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnstageVolume Volume ID must be provided")
 	}
-	if req.StagingTargetPath == "" {
+	if req.GetStagingTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "NodeUnstageVolume Staging target path must be provided")
 	}
 
+	// Acquire lock to prevent concurrent operations on this server
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+
 	klog.V(4).Infof("NodeUnstageVolume called for volume %s", req.VolumeId)
+
+	// Unmount the volume
+	// Staging path is appended with volumeID.
+	// This was defined in NodeStageVolume to avoid conflicts.
+	stagingPath := req.GetStagingTargetPath() + "/" + volumeID
+	unmounter := getNVMfDiskUnMounter()
+	err := UnmountVolume(stagingPath, unmounter)
+	if err != nil {
+		klog.Errorf("NodeUnstageVolume: failed to unmount volume %s: %v", volumeID, err)
+		return nil, status.Errorf(codes.Internal, "failed to unmount volume: %v", err)
+	}
+
+	// Detach the volume
+	err = DetachDisk(volumeID, stagingPath)
+	if err != nil {
+		klog.Errorf("NodeUnstageVolume: failed to detach volume %s: %v", volumeID, err)
+		return nil, status.Errorf(codes.Internal, "failed to detach volume: %v", err)
+	}
+
+	// Remove the connector file
+	removeConnectorFile(stagingPath)
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
