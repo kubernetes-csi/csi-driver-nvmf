@@ -48,6 +48,13 @@ func (n *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCa
 					},
 				},
 			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+					},
+				},
+			},
 		},
 	}, nil
 }
@@ -102,11 +109,40 @@ func (n *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpub
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
+// NodeStageVolume attaches the NVMe device to the node
 func (n *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume Volume ID must be required")
+	}
+
+	// Check for supported volume capabilities
+	if req.GetVolumeCapability() == nil {
+		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume Volume capability is required")
+	}
+
+	// Check for staging target path
+	if req.GetStagingTargetPath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume Staging target path is required")
+	}
+
+	klog.V(4).Infof("NodeStageVolume called for volume %s", volumeID)
+
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
+// NodeUnstageVolume detaches the NVMe device from the node
 func (n *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	// Validate parameters
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "NodeUnstageVolume Volume ID must be provided")
+	}
+	if req.StagingTargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "NodeUnstageVolume Staging target path must be provided")
+	}
+
+	klog.V(4).Infof("NodeUnstageVolume called for volume %s", req.VolumeId)
+
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
