@@ -42,13 +42,15 @@ type Connector struct {
 
 func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 	return &Connector{
-		VolumeID:   nvmfInfo.VolName,
-		DeviceUUID: nvmfInfo.DeviceUUID,
-		TargetNqn:  nvmfInfo.Nqn,
-		TargetAddr: nvmfInfo.Addr,
-		TargetPort: nvmfInfo.Port,
-		Transport:  nvmfInfo.Transport,
-		HostNqn:    hostnqn,
+		VolumeID:      nvmfInfo.VolName,
+		DeviceUUID:    nvmfInfo.DeviceUUID,
+		TargetNqn:     nvmfInfo.Nqn,
+		TargetAddr:    nvmfInfo.Addr,
+		TargetPort:    nvmfInfo.Port,
+		Transport:     nvmfInfo.Transport,
+		HostNqn:       hostnqn,
+		RetryCount:    10, // Default retry count
+		CheckInterval: 1,  // Default check interval in seconds
 	}
 }
 
@@ -228,13 +230,6 @@ func disconnectByNqn(nqn, hostnqn string) int {
 
 // connect to volume to this node and return devicePath
 func (c *Connector) Connect() (string, error) {
-	if c.RetryCount == 0 {
-		c.RetryCount = 10
-	}
-	if c.CheckInterval == 0 {
-		c.CheckInterval = 1
-	}
-
 	if c.RetryCount < 0 || c.CheckInterval < 0 {
 		return "", fmt.Errorf("Invalid RetryCount and CheckInterval combinaitons "+
 			"RetryCount: %d, CheckInterval: %d ", c.RetryCount, c.CheckInterval)
@@ -263,9 +258,8 @@ func (c *Connector) Connect() (string, error) {
 		return "", err
 	}
 
-	// create nqn directory
-	nqnPath := filepath.Join(RUN_NVMF, c.TargetNqn)
-	if err := os.MkdirAll(nqnPath, 0750); err != nil {
+	// create tracking files
+	if err := createTrackingFiles(c); err != nil {
 		klog.Errorf("create nqn directory %s error %v, rollback!!!", c.TargetNqn, err)
 		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
 		if ret < 0 {
@@ -273,19 +267,6 @@ func (c *Connector) Connect() (string, error) {
 		}
 		return "", err
 	}
-
-	// create hostnqn file
-	hostnqnPath := filepath.Join(RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn)))
-	file, err := os.Create(hostnqnPath)
-	if err != nil {
-		klog.Errorf("create hostnqn file %s:%s error %v, rollback!!!", c.TargetNqn, c.HostNqn, err)
-		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
-		if ret < 0 {
-			klog.Errorf("rollback error !!!")
-		}
-		return "", err
-	}
-	defer file.Close()
 
 	klog.Infof("After connect we're returning devicePath: %s", devicePath)
 	return devicePath, nil
@@ -297,6 +278,25 @@ func (c *Connector) Disconnect() error {
 	if ret < 0 {
 		return fmt.Errorf("Disconnect: failed to disconnect by nqn: %s ", c.TargetNqn)
 	}
+
+	return nil
+}
+
+// createTrackingFiles creates tracking files used by the disconnect process
+func createTrackingFiles(c *Connector) error {
+	// create nqn directory
+	nqnPath := filepath.Join(RUN_NVMF, c.TargetNqn)
+	if err := os.MkdirAll(nqnPath, 0750); err != nil {
+		return fmt.Errorf("failed to create NQN directory: %v", err)
+	}
+
+	// create hostnqn file
+	hostnqnPath := filepath.Join(RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn)))
+	file, err := os.Create(hostnqnPath)
+	if err != nil {
+		klog.Errorf("create hostnqn file %s:%s error %v", c.TargetNqn, c.HostNqn, err)
+	}
+	defer file.Close()
 
 	return nil
 }
