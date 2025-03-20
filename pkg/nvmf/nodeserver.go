@@ -18,6 +18,7 @@ package nvmf
 
 import (
 	"os"
+	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
@@ -29,6 +30,7 @@ import (
 
 type NodeServer struct {
 	Driver *driver
+	mtx    sync.Mutex // protect volumes map
 }
 
 func NewNodeServer(d *driver) *NodeServer {
@@ -73,22 +75,31 @@ func (n *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 		return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume missing TargetPath in req.")
 	}
 
-	// 2. attachdisk
+	if len(req.GetStagingTargetPath()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Staging target path missing in request")
+	}
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+
+	klog.V(4).Infof("NodePublishVolume called for volume %s", req.VolumeId)
+
+	// 2. mountdisk
 	// Create mounter for the volume to be published
 	parameter := req.GetVolumeContext()
 	volumeID := req.GetVolumeId()
 	targetPath := req.GetTargetPath()
+	stagingPath := req.GetStagingTargetPath() + "/" + volumeID
 	nvmfInfo, err := getNVMfDiskInfo(volumeID, parameter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: get NVMf disk info from req err: %v", err)
 	}
 	diskMounter := getNVMfDiskMounter(nvmfInfo, targetPath, req.GetVolumeCapability())
 
-	// attachDisk realize connect NVMf disk and mount to docker path
-	_, err = AttachDisk(req, *diskMounter)
+	// Mount to the docker path from the staging path
+	err = MountVolume(stagingPath, diskMounter)
 	if err != nil {
-		klog.Errorf("NodePublishVolume: Attach volume %s with error: %s", req.VolumeId, err.Error())
-		return nil, err
+		klog.Errorf("NodePublishVolume: failed to mount volume %s at %s with error: %s", req.VolumeId, targetPath, err.Error())
+		return nil, status.Errorf(codes.Unavailable, "NodePublishVolume: failed to mount volume: %v", err)
 	}
 
 	return &csi.NodePublishVolumeResponse{}, nil
@@ -131,7 +142,56 @@ func (n *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume Staging target path is required")
 	}
 
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+
 	klog.V(4).Infof("NodeStageVolume called for volume %s", volumeID)
+
+	deviceName, err := GetDeviceNameByVolumeID(volumeID)
+	if err == nil && deviceName != "" {
+		klog.V(4).Infof("NodeStageVolume: Device %s already exists", deviceName)
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
+
+	// Create Connector and mounter for the volume to be staged
+	nvmfInfo, err := getNVMfDiskInfo(volumeID, req.GetVolumeContext())
+	if err != nil {
+		klog.Errorf("NodeStageVolume: failed to get NVMf disk info: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get NVMf disk info: %v", err)
+	}
+
+	// stagingPath is appended with volumeID to avoid conflicts
+	// This is necessary to properly handle different volume modes:
+	// - In filesystem mode: need a dedicated directory for mounting
+	// - In block mode: need a specific path for the block device file
+	stagingPath := req.GetStagingTargetPath() + "/" + volumeID
+	diskMounter := getNVMfDiskMounter(nvmfInfo, stagingPath, req.GetVolumeCapability())
+
+	// Attach the NVMe disk
+	devicePath, err := AttachDisk(volumeID, diskMounter.connector)
+	if err != nil {
+		klog.Errorf("NodeStageVolume: failed to attach volume %s: %v", volumeID, err)
+		return nil, status.Errorf(codes.Unavailable, "failed to attach volume %s: %v", volumeID, err)
+	}
+
+	// Mount the volume
+	klog.V(4).Infof("NodeStageVolume: mounting device %s at %s", devicePath, stagingPath)
+	err = MountVolume(devicePath, diskMounter)
+	if err != nil {
+		klog.Errorf("NodeStageVolume: failed to mount volume %s: %v", volumeID, err)
+		diskMounter.connector.Disconnect()
+		return nil, status.Errorf(codes.Unavailable, "failed to mount volume: %v", err)
+	}
+
+	// Persist connector information for detachment
+	err = persistConnectorFile(diskMounter.connector, stagingPath+".json")
+	if err != nil {
+		klog.Errorf("NodeStageVolume: failed to persist connection info: %v", err)
+		klog.Errorf("NodeStageVolume: disconnecting volume because persistence file is required for unstage")
+		UnmountVolume(stagingPath, getNVMfDiskUnMounter())
+		diskMounter.connector.Disconnect()
+		return nil, status.Errorf(codes.Unavailable, "failed to persist connection info: %v", err)
+	}
 
 	return &csi.NodeStageVolumeResponse{}, nil
 }

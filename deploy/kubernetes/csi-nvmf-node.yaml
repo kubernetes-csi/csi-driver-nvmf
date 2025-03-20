@@ -70,6 +70,9 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/kubelet/plugins/csi.nvmf.com
+            - name: csi-dir
+              mountPath: /var/lib/kubelet/plugins/kubernetes.io
+              mountPropagation: "Bidirectional"
             - name: pods-mount-dir
               mountPath: /var/lib/kubelet/pods
               mountPropagation: "Bidirectional"
@@ -91,6 +94,10 @@ spec:
         - name: registration-dir
           hostPath:
             path: /var/lib/kubelet/plugins_registry
+            type: DirectoryOrCreate
+        - name: csi-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/kubernetes.io
             type: DirectoryOrCreate
         - name: pods-mount-dir
           hostPath:

@@ -6,7 +6,8 @@ spec:
   accessModes:
     - ReadWriteOnce
   storageClassName: csi-nvmf-sc
+  volumeMode: Block
   resources:
     requests:
       storage: 20Gi
-      
+  
