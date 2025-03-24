@@ -15,5 +15,4 @@ spec:
       targetTrAddr: "192.168.122.18"
       targetTrPort: "49153"
       targetTrType: "tcp"
-      deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
       nqn: "nqn.2022-08.org.test-nvmf.example"

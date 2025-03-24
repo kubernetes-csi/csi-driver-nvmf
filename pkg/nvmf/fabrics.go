@@ -30,7 +30,6 @@ import (
 
 type Connector struct {
 	VolumeID      string
-	DeviceUUID    string
 	TargetNqn     string
 	TargetAddr    string
 	TargetPort    string
@@ -43,7 +42,6 @@ type Connector struct {
 func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 	return &Connector{
 		VolumeID:      nvmfInfo.VolName,
-		DeviceUUID:    nvmfInfo.DeviceUUID,
 		TargetNqn:     nvmfInfo.Nqn,
 		TargetAddr:    nvmfInfo.Addr,
 		TargetPort:    nvmfInfo.Port,
@@ -240,7 +238,6 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s,hostnqn=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort, c.HostNqn)
-	devicePath := strings.Join([]string{"/dev/disk/by-id/nvme-uuid", c.DeviceUUID}, ".")
 
 	// connect to nvmf disk
 	err := _connect(baseString)
@@ -248,8 +245,10 @@ func (c *Connector) Connect() (string, error) {
 		return "", err
 	}
 	klog.Infof("Connect Volume %s success nqn: %s, hostnqn: %s", c.VolumeID, c.TargetNqn, c.HostNqn)
-	retries := int(c.RetryCount / c.CheckInterval)
-	if exists, err := waitForPathToExist(devicePath, retries, int(c.CheckInterval), c.Transport); !exists {
+
+	// Wait for device to be ready (find UUID and check path)
+	devicePath, err := findPathWithRetry(c.TargetNqn, c.RetryCount, c.CheckInterval)
+	if err != nil {
 		klog.Errorf("connect nqn %s error %v, rollback!!!", c.TargetNqn, err)
 		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
 		if ret < 0 {

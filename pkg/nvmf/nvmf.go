@@ -35,12 +35,11 @@ const (
 )
 
 type nvmfDiskInfo struct {
-	VolName    string
-	Nqn        string `json:"subnqn"`
-	Addr       string `json:"traddr"`
-	Port       string `json:"trsvcid"`
-	DeviceUUID string
-	Transport  string `json:"trtype"`
+	VolName   string
+	Nqn       string `json:"subnqn"`
+	Addr      string `json:"traddr"`
+	Port      string `json:"trsvcid"`
+	Transport string `json:"trtype"`
 }
 
 type nvmfDiskMounter struct {
@@ -68,20 +67,18 @@ func getNVMfDiskInfo(volID string, params map[string]string) (*nvmfDiskInfo, err
 	targetTrAddr := params[paramAddr]
 	targetTrPort := params[paramPort]
 	targetTrType := params[paramType]
-	deviceUUID := params["deviceUUID"]
 	nqn := volID
 
-	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" || deviceUUID == "" {
+	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" {
 		return nil, fmt.Errorf("some nvme target info is missing, volID: %s ", volID)
 	}
 
 	return &nvmfDiskInfo{
-		VolName:    volID,
-		Addr:       targetTrAddr,
-		Port:       targetTrPort,
-		Nqn:        nqn,
-		DeviceUUID: deviceUUID,
-		Transport:  targetTrType,
+		VolName:   volID,
+		Addr:      targetTrAddr,
+		Port:      targetTrPort,
+		Nqn:       nqn,
+		Transport: targetTrType,
 	}, nil
 }
 
