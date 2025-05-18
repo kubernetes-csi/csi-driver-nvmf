@@ -230,7 +230,11 @@ func (n *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstage
 	}
 
 	// Detach the volume
-	err = DetachDisk(volumeID, stagingPath)
+	// NQN is used as the volume ID
+	// This assumption is valid because in CreateVolume, we assigned the device's NQN
+	// as the volumeID when returning the CreateVolumeResponse.
+	targetNqn := volumeID
+	err = DetachDisk(targetNqn, stagingPath)
 	if err != nil {
 		klog.Errorf("NodeUnstageVolume: failed to detach volume %s: %v", volumeID, err)
 		return nil, status.Errorf(codes.Internal, "failed to detach volume: %v", err)

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"k8s.io/klog/v2"
@@ -29,9 +30,10 @@ import (
 
 // NVMe-oF parameter keys
 const (
-	paramAddr = "targetTrAddr" // Target address parameter
-	paramPort = "targetTrPort" // Target port parameter
-	paramType = "targetTrType" // Transport type parameter
+	paramAddr     = "targetTrAddr"     // Target address parameter
+	paramPort     = "targetTrPort"     // Target port parameter
+	paramType     = "targetTrType"     // Transport type parameter
+	paramEndpoint = "targetTrEndpoint" // Target endpoints parameter
 )
 
 type nvmfDiskInfo struct {
@@ -40,6 +42,7 @@ type nvmfDiskInfo struct {
 	Addr      string `json:"traddr"`
 	Port      string `json:"trsvcid"`
 	Transport string `json:"trtype"`
+	Endpoints []string
 }
 
 type nvmfDiskMounter struct {
@@ -64,19 +67,22 @@ func getNVMfDiskInfo(volID string, params map[string]string) (*nvmfDiskInfo, err
 		return nil, fmt.Errorf("discovery parameters are nil")
 	}
 
-	targetTrAddr := params[paramAddr]
-	targetTrPort := params[paramPort]
 	targetTrType := params[paramType]
+	targetTrEndpoints := params[paramEndpoint]
 	nqn := volID
 
-	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" {
-		return nil, fmt.Errorf("some nvme target info is missing, volID: %s ", volID)
+	if nqn == "" || targetTrType == "" || targetTrEndpoints == "" {
+		return nil, fmt.Errorf("some nvme target info is missing, nqn: %s, type: %s, eindpoints: %s ", nqn, targetTrType, targetTrEndpoints)
+	}
+
+	endpoints := strings.Split(targetTrEndpoints, ",")
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("no endpoints found in %s", volID)
 	}
 
 	return &nvmfDiskInfo{
 		VolName:   volID,
-		Addr:      targetTrAddr,
-		Port:      targetTrPort,
+		Endpoints: endpoints,
 		Nqn:       nqn,
 		Transport: targetTrType,
 	}, nil
@@ -127,15 +133,14 @@ func AttachDisk(volumeID string, connector *Connector) (string, error) {
 }
 
 // DetachDisk disconnects an NVMe-oF disk
-func DetachDisk(volumeID string, targetPath string) error {
-	connector, err := GetConnectorFromFile(targetPath + ".json")
-	if err != nil {
-		klog.Errorf("DetachDisk: failed to get connector from path %s Error: %v", targetPath, err)
-		return err
+func DetachDisk(targetNqn, targetPath string) error {
+	connector := Connector{
+		TargetNqn: targetNqn,
+		HostNqn:   targetPath,
 	}
-	err = connector.Disconnect()
+	err := connector.Disconnect()
 	if err != nil {
-		klog.Errorf("DetachDisk: VolumeID: %s failed to disconnect, Error: %v", volumeID, err)
+		klog.Errorf("DetachDisk: failed to disconnect, Error: %v", err)
 		return err
 	}
 

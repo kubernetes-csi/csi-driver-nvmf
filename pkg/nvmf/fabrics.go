@@ -29,26 +29,24 @@ import (
 )
 
 type Connector struct {
-	VolumeID      string
-	TargetNqn     string
-	TargetAddr    string
-	TargetPort    string
-	Transport     string
-	HostNqn       string
-	RetryCount    int32
-	CheckInterval int32
+	VolumeID        string
+	TargetNqn       string
+	TargetEndpoints []string
+	Transport       string
+	HostNqn         string
+	RetryCount      int32
+	CheckInterval   int32
 }
 
 func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 	return &Connector{
-		VolumeID:      nvmfInfo.VolName,
-		TargetNqn:     nvmfInfo.Nqn,
-		TargetAddr:    nvmfInfo.Addr,
-		TargetPort:    nvmfInfo.Port,
-		Transport:     nvmfInfo.Transport,
-		HostNqn:       hostnqn,
-		RetryCount:    10, // Default retry count
-		CheckInterval: 1,  // Default check interval in seconds
+		VolumeID:        nvmfInfo.VolName,
+		TargetNqn:       nvmfInfo.Nqn,
+		TargetEndpoints: nvmfInfo.Endpoints,
+		Transport:       nvmfInfo.Transport,
+		HostNqn:         hostnqn,
+		RetryCount:      10, // Default retry count
+		CheckInterval:   1,  // Default check interval in seconds
 	}
 }
 
@@ -237,14 +235,31 @@ func (c *Connector) Connect() (string, error) {
 		return "", fmt.Errorf("csi transport only support tcp/rdma ")
 	}
 
-	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s,hostnqn=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort, c.HostNqn)
+	// TargetEndpoints is assumed to be populated (via CreateVolume) with multiple "IP:Port" entries
+	// Attempt to connect to all endpoints to support multi-path configurations
+	for _, endpoint := range c.TargetEndpoints {
+		// Split the endpoint into IP and port
+		parts := strings.Split(endpoint, ":")
+		if len(parts) != 2 {
+			return "", fmt.Errorf("invalid endpoint format: %s", endpoint)
+		}
 
-	// connect to nvmf disk
-	err := _connect(baseString)
-	if err != nil {
-		return "", err
+		ip, port := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if ip == "" || port == "" {
+			return "", fmt.Errorf("empty IP or port in endpoint: %s", endpoint)
+		}
+
+		baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s,hostnqn=%s", c.TargetNqn, c.Transport, ip, port, c.HostNqn)
+		klog.V(4).Infof("Running connect on %s://%s:%s", c.Transport, ip, port)
+
+		// connect to nvmf disk
+		err := _connect(baseString)
+		if err != nil {
+			klog.Errorf("Connect: failed to connect to endpoint %s, error: %v", endpoint, err)
+			return "", err
+		}
 	}
-	klog.Infof("Connect Volume %s success nqn: %s, hostnqn: %s", c.VolumeID, c.TargetNqn, c.HostNqn)
+	klog.V(4).Infof("Connect Volume %s success nqn: %s, hostnqn: %s", c.VolumeID, c.TargetNqn, c.HostNqn)
 
 	// Wait for device to be ready (find UUID and check path)
 	devicePath, err := findPathWithRetry(c.TargetNqn, c.RetryCount, c.CheckInterval)

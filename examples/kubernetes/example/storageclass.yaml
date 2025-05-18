@@ -3,8 +3,8 @@ kind: StorageClass
 metadata:
   name: csi-nvmf-sc
 parameters:
-  targetTrAddr: "192.168.122.18"
-  targetTrPort: "49153"
+  targetTrAddr: "192.168.122.18,192.168.122.19"
+  targetTrPort: "49153,49154"
   targetTrType: "tcp"
 provisioner: csi.nvmf.com
 reclaimPolicy: Delete

@@ -120,8 +120,7 @@ func (r *DeviceRegistry) SyncFromPV(ctx context.Context) error {
 					VolName:   pv.Name,
 					Nqn:       nqn,
 					Transport: pv.Spec.CSI.VolumeAttributes[paramType],
-					Addr:      pv.Spec.CSI.VolumeAttributes["targetTrAddr"],
-					Port:      pv.Spec.CSI.VolumeAttributes["targetTrPort"],
+					Endpoints: strings.Split(pv.Spec.CSI.VolumeAttributes["targetTrEndpoint"], ","),
 				},
 				IsAllocated: true,
 			}
@@ -164,7 +163,7 @@ func (r *DeviceRegistry) DiscoverDevices(params map[string]string) error {
 	klog.V(4).Infof("Discovered %d NVMe targets", len(r.devices))
 
 	for _, device := range r.devices {
-		klog.V(4).Infof("- NQN: %s, Endpoints: %v:%v", device.Nqn, device.Addr, device.Port)
+		klog.V(4).Infof("- NQN: %s, isAllocated: %t, Endpoints: %v", device.Nqn, device.IsAllocated, device.Endpoints)
 	}
 
 	return nil
@@ -207,7 +206,7 @@ func (r *DeviceRegistry) AllocateDevice(volumeName string) (*VolumeInfo, error) 
 	device.VolName = volumeName
 	device.IsAllocated = true
 
-	klog.V(4).Infof("[%d/%d] Allocated volume %s (NQN %s)", len(r.devices) - len(r.availableNQNs), len(r.devices), volumeName, nqn)
+	klog.V(4).Infof("[%d/%d] Allocated volume %s (NQN %s)", len(r.devices)-len(r.availableNQNs), len(r.devices), volumeName, nqn)
 
 	return device, nil
 }
@@ -216,7 +215,6 @@ func (r *DeviceRegistry) AllocateDevice(volumeName string) (*VolumeInfo, error) 
 func (r *DeviceRegistry) ReleaseDevice(nqn string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-
 
 	device, exists := r.devices[nqn]
 	if !exists {
@@ -232,7 +230,7 @@ func (r *DeviceRegistry) ReleaseDevice(nqn string) {
 	r.availableNQNs[nqn] = struct{}{}
 	device.VolName = ""
 
-	klog.V(4).Infof("[%d/%d] Released volume %s", len(r.devices) - len(r.availableNQNs), len(r.devices), nqn)
+	klog.V(4).Infof("[%d/%d] Released volume %s", len(r.devices)-len(r.availableNQNs), len(r.devices), nqn)
 }
 
 // discoverNVMeDevices runs NVMe discovery and returns available targets
@@ -255,21 +253,53 @@ func discoverNVMeDevices(params map[string]string) (map[string]*nvmfDiskInfo, er
 
 	klog.V(4).Infof("Discovering NVMe targets at %s:%s using %s", targetAddr, targetPort, targetType)
 
+	// Discover devices on each port
+	ips := strings.Split(targetAddr, ",")
+	ports := strings.Split(targetPort, ",")
+	// collect devices by NQN with endpoints as a list
 	deviceMap := make(map[string]*nvmfDiskInfo)
-	cmd := exec.Command("nvme", "discover", "-a", targetAddr, "-s", targetPort, "-t", targetType, "-o", "json")
-	var out bytes.Buffer
-	cmd.Stdout = &out
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip) // Trim spaces in case there are spaces after commas
+		for _, port := range ports {
+			port = strings.TrimSpace(port) // Trim spaces in case there are spaces after commas
+			if port == "" {
+				continue
+			}
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("nvme discover command failed: %v", err)
+			klog.V(4).Infof("Running discovery on %s://%s:%s", targetType, ip, port)
+			cmd := exec.Command("nvme", "discover", "-a", ip, "-s", port, "-t", targetType, "-o", "json")
+			var out bytes.Buffer
+			cmd.Stdout = &out
+
+			if err := cmd.Run(); err != nil {
+				klog.Warningf("nvme discover command failed for port %s: %v", port, err)
+				continue // Continue with next port instead of failing completely
+			}
+
+			// Parse JSON output and organize by NQN
+			devices := parseNvmeDiscoveryOutput(out.String(), targetType)
+			for _, device := range devices {
+				if existingDevice, exists := deviceMap[device.Nqn]; exists {
+					// NQN already exists, just add the new endpoint if it's not already in the list
+					endpoint := device.Endpoints[0]
+					endpointExists := false
+					for _, existingEndpoint := range existingDevice.Endpoints {
+						if existingEndpoint == endpoint {
+							endpointExists = true
+							break
+						}
+					}
+					if !endpointExists {
+						existingDevice.Endpoints = append(existingDevice.Endpoints, endpoint)
+					}
+				} else {
+					// New NQN, add the device to the map
+					deviceMap[device.Nqn] = device
+				}
+			}
+		}
 	}
 
-	// Parse JSON output and organize by NQN
-	devices := parseNvmeDiscoveryOutput(out.String(), targetType)
-	for _, device := range devices {
-		deviceMap[device.Nqn] = device
-	}
-	
 	return deviceMap, nil
 }
 
@@ -296,10 +326,17 @@ func parseNvmeDiscoveryOutput(output string, targetType string) []*nvmfDiskInfo 
 			continue
 		}
 
+		// Set endpoint address if both Addr and Port are provided
+		// These are required for the noder server to connect to the target with multipath
+		if record.Addr != "" && record.Port != "" {
+			record.Endpoints = []string{record.Addr + ":" + record.Port}
+		} else {
+			klog.Warningf("Skipping record with invalid Addr or Port: Addr=%s, Port=%s", record.Addr, record.Port)
+		}
+
 		// Append to targets list
 		recordCopy := record // Create a copy because 'record' is reused in each loop iteration
 		targets = append(targets, &recordCopy)
 	}
-
 	return targets
 }

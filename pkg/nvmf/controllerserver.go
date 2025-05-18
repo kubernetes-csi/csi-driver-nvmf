@@ -18,6 +18,7 @@ package nvmf
 
 import (
 	"context"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -104,11 +105,22 @@ func (c *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 		return nil, status.Errorf(codes.ResourceExhausted, "no suitable device available: %v", err)
 	}
 
+	volumeContext := map[string]string{
+		paramType: allocatedDevice.Transport,
+	}
+
+	if len(allocatedDevice.Endpoints) > 1 {
+		endpointPairs := []string{}
+		endpointPairs = append(endpointPairs, allocatedDevice.Endpoints...)
+
+		volumeContext[paramEndpoint] = strings.Join(endpointPairs, ",")
+	}
+
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      allocatedDevice.Nqn,
 			CapacityBytes: UseActualDeviceCapacity, // PV will use the actual capacity
-			VolumeContext: parameters,
+			VolumeContext: volumeContext,
 			ContentSource: req.GetVolumeContentSource(),
 		},
 	}, nil
