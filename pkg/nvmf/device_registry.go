@@ -233,6 +233,15 @@ func (r *DeviceRegistry) ReleaseDevice(nqn string) {
 	klog.V(4).Infof("[%d/%d] Released volume %s", len(r.devices)-len(r.availableNQNs), len(r.devices), nqn)
 }
 
+// GetDeviceByNQN returns device info for a given NQN
+func (r *DeviceRegistry) GetDeviceByNQN(nqn string) (*VolumeInfo, bool) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	device, exists := r.devices[nqn]
+	return device, exists
+}
+
 // discoverNVMeDevices runs NVMe discovery and returns available targets
 func discoverNVMeDevices(params map[string]string) (map[string]*nvmfDiskInfo, error) {
 	if params == nil {
