@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kubernetes-csi/csi-driver-nvmf/pkg/utils"
 	"k8s.io/klog/v2"
@@ -52,24 +53,32 @@ func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 
 // connector provides a struct to hold all of the needed parameters to make nvmf connection
 
-func _connect(argStr string) error {
-	file, err := os.OpenFile("/dev/nvme-fabrics", os.O_RDWR, 0666)
-	if err != nil {
-		klog.Errorf("Connect: open NVMf fabrics error: %v", err)
-		return err
+func _connect(argStr string, maxRetries, intervalSeconds int32) error {
+	var err error
+	for i := int32(0); i < maxRetries; i++ {
+		time.Sleep(time.Second * time.Duration(intervalSeconds))
+		file, err := os.OpenFile("/dev/nvme-fabrics", os.O_RDWR, 0666)
+		if err != nil {
+			klog.Warningf("_connect: attempt %d/%d for '%s', error opening /dev/nvme-fabrics: %v", i+1, maxRetries, argStr, err)
+			continue
+		}
+
+		defer file.Close()
+		err = utils.WriteStringToFile(file, argStr)
+		if err != nil {
+			klog.Warningf("_connect: attempt %d/%d to write arg for '%s' failed: %v", i+1, maxRetries, argStr, err)
+			continue
+		}
+
+		// todo: read file to verify
+		lines, _ := utils.ReadLinesFromFile(file)
+		klog.Infof("Connect: read string %s", lines)
+
+		return nil
 	}
 
-	defer file.Close()
-
-	err = utils.WriteStringToFile(file, argStr)
-	if err != nil {
-		klog.Errorf("Connect: write arg to connect file error: %v", err)
-		return err
-	}
-	// todo: read file to verify
-	lines, _ := utils.ReadLinesFromFile(file)
-	klog.Infof("Connect: read string %s", lines)
-	return nil
+	klog.Errorf("Connect: failed to connect after %d attempts", maxRetries)
+	return err
 }
 
 func _disconnect(sysfs_path string) error {
@@ -253,9 +262,13 @@ func (c *Connector) Connect() (string, error) {
 		klog.V(4).Infof("Running connect on %s://%s:%s", c.Transport, ip, port)
 
 		// connect to nvmf disk
-		err := _connect(baseString)
+		err := _connect(baseString, c.RetryCount, c.CheckInterval)
 		if err != nil {
 			klog.Errorf("Connect: failed to connect to endpoint %s, error: %v", endpoint, err)
+			ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
+			if ret < 0 {
+				klog.Errorf("rollback error !!!")
+			}
 			return "", err
 		}
 	}
