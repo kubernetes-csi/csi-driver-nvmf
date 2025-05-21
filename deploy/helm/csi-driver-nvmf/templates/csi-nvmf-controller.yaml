@@ -1,0 +1,79 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-nvmf-controller
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-nvmf-controller
+  template:
+    metadata:
+      labels:
+        app: csi-nvmf-controller
+    spec:
+      serviceAccount: csi-nvmf-controller-sa
+      containers:
+        - name:  csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v3.3.0
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--v={{ .Values.csiDriver.verbosityLevel | default 2 }}"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.2.0
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - "--v={{ .Values.csiDriver.verbosityLevel | default 2 }}"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election=false"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: csi-nvmf-plugin
+          image: {{ .Values.csiDriver.image.repository | default "nvmfplugin" }}:{{ .Values.csiDriver.image.tag | default "v1.0.0" }}
+          imagePullPolicy: "Always"
+          args:
+            - "--v={{ .Values.csiDriver.verbosityLevel | default 2 }}"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--IsControllerServer=true"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: volume-map
+              mountPath: /var/lib/kubelet/plugins/csi.nvmf.com/volumes
+              mountPropagation: "HostToContainer"
+            - name: dev
+              mountPath: /dev
+            - name: sys
+              mountPath: /sys
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+        - name: volume-map
+          hostPath:
+            path:  /var/lib/kubelet/plugins/csi.nvmf.com/volumes
+            type: DirectoryOrCreate
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: /sys

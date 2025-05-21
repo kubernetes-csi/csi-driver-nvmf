@@ -15,7 +15,7 @@
 # force the usage of /bin/bash instead of /bin/sh
 SHELL := /bin/bash
 
-.PHONY: build-% build container-% container push-% push clean test
+.PHONY: build-% build container-% container push-% push clean test helm-lint helm-package helm-install helm-upgrade helm-uninstall
 
 # A space-separated list of all commands in the repository, must be
 # set in main Makefile of a repository.
@@ -330,3 +330,48 @@ test-boilerplate:
 test-logcheck:
 	@ echo; echo "### $@:"
 	@ ./release-tools/verify-logcheck.sh
+
+# Helm chart related targets
+HELM_CHART_PATH ?= deploy/helm/csi-driver-nvmf
+HELM_RELEASE_NAME ?= csi-nvmf
+HELM_NAMESPACE ?= csi-nvmf
+
+# Lint Helm chart
+.PHONY: helm-lint
+helm-lint:
+	helm lint $(HELM_CHART_PATH)
+
+# Package Helm chart
+.PHONY: helm-package
+helm-package:
+	helm package $(HELM_CHART_PATH)
+
+# Install Helm chart
+.PHONY: helm-install
+helm-install:
+	helm install $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		--namespace $(HELM_NAMESPACE) \
+		--create-namespace \
+		-f $(HELM_CHART_PATH)/values.yaml
+
+# Upgrade Helm chart
+.PHONY: helm-upgrade
+helm-upgrade:
+	helm upgrade $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		--namespace $(HELM_NAMESPACE) \
+		-f $(HELM_CHART_PATH)/values.yaml
+
+# Uninstall Helm chart
+.PHONY: helm-uninstall
+helm-uninstall:
+	helm uninstall $(HELM_RELEASE_NAME) --namespace $(HELM_NAMESPACE)
+
+# Display Helm chart help
+.PHONY: helm-help
+helm-help:
+	@echo "Available Helm chart commands:"
+	@echo "  make helm-lint        - Lint Helm chart"
+	@echo "  make helm-package     - Package Helm chart"
+	@echo "  make helm-install     - Install Helm chart"
+	@echo "  make helm-upgrade     - Upgrade Helm chart"
+	@echo "  make helm-uninstall   - Uninstall Helm chart"

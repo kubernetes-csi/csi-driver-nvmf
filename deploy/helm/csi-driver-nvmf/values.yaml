@@ -1,0 +1,13 @@
+csiDriver:
+  verbosityLevel: 4 # (0-5): 0=ERROR, 1=WARNING, 2=INFO(기본값), 3=DEBUG, 4,5=TRACE
+  image:
+    repository: nvmfplugin
+    tag: v1.0.0
+
+storageClass:
+  name: csi-nvmf-sc
+  allowVolumeExpansion: false
+  parameters:
+    targetTrAddr: "192.168.122.18,192.168.122.19"
+    targetTrPort: "49153,49154"
+    targetTrType: "tcp"

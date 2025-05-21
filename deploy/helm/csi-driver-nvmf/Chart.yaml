@@ -1,0 +1,6 @@
+apiVersion: v2
+name: csi-driver-nvmf
+description: A Helm chart for NVMe-oF CSI Driver
+type: application
+version: v1.0.0
+appVersion: v1.0.0

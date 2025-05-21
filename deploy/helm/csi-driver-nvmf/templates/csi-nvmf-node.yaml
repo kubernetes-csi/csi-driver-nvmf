@@ -1,0 +1,119 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-nvmf-node
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: csi-nvmf-node
+  template:
+    metadata:
+      labels:
+        app: csi-nvmf-node
+    spec:
+      serviceAccount: csi-nvmf-node-sa
+      hostNetwork: true
+      dnsPolicy: Default
+      containers:
+        - name: node-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.6.2
+          env:
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/csi.nvmf.com/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          args:
+            - "--v={{ .Values.csiDriver.verbosityLevel | default 2 }}"
+            - "--csi-address=/csi/csi.sock"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          livenessProbe:
+            exec:
+              command:
+                - /csi-node-driver-registrar
+                - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+                - --mode=kubelet-registration-probe
+            initialDelaySeconds: 30
+            timeoutSeconds: 15
+          volumeMounts:
+            - name: registration-dir
+              mountPath: /registration
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+
+        - name: csi-nvmf-plugin
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          image: {{ .Values.csiDriver.image.repository | default "nvmfplugin" }}:{{ .Values.csiDriver.image.tag | default "v1.0.0" }}
+          imagePullPolicy: "Always"
+          args:
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--nodeid=$(NODE_ID)"
+            - "--v={{ .Values.csiDriver.verbosityLevel | default 2 }}"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///var/lib/kubelet/plugins/csi.nvmf.com/csi.sock
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/kubelet/plugins/csi.nvmf.com
+            - name: csi-dir
+              mountPath: /var/lib/kubelet/plugins/kubernetes.io
+              mountPropagation: "Bidirectional"
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: "Bidirectional"
+            - name: run-nvmf-dir
+              mountPath: /run/nvmf
+            - name: host-dev
+              mountPath: /dev
+              mountPropagation: "HostToContainer"
+            - name: host-sys
+              mountPath: /sys
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.nvmf.com
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: DirectoryOrCreate
+        - name: csi-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/kubernetes.io
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: run-nvmf-dir
+          hostPath:
+            path: /run/nvmf
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
