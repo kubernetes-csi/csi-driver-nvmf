@@ -88,7 +88,7 @@ func getNVMfDiskMounter(nvmfInfo *nvmfDiskInfo, req *csi.NodePublishVolumeReques
 		mounter:      &mount.SafeFormatAndMount{Interface: mount.New(""), Exec: exec.New()},
 		exec:         exec.New(),
 		targetPath:   req.GetTargetPath(),
-		connector:    getNvmfConnector(nvmfInfo, req.GetTargetPath()),
+		connector:    getNvmfConnector(nvmfInfo),
 	}
 }
 
