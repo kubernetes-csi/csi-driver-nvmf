@@ -54,6 +54,14 @@ func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
 		hostid = ""
 	}
 
+	if (nvmfInfo.HostNqn != "") {
+		hostnqn = nvmfInfo.HostNqn
+	}
+
+	if (nvmfInfo.HostId != "") {
+		hostid = nvmfInfo.HostId
+	}
+
 	return &Connector{
 		VolumeID:   nvmfInfo.VolName,
 		DeviceUUID: nvmfInfo.DeviceUUID,
