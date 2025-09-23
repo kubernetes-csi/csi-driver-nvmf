@@ -33,6 +33,8 @@ type nvmfDiskInfo struct {
 	Port       string
 	DeviceUUID string
 	Transport  string
+	HostId     string
+	HostNqn    string
 }
 
 type nvmfDiskMounter struct {
@@ -59,6 +61,8 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 	targetTrPort := volOpts["targetTrPort"]
 	targetTrType := volOpts["targetTrType"]
 	deviceUUID := volOpts["deviceUUID"]
+	devHostNqn := volOpts["hostNqn"]
+	devHostId := volOpts["hostId"]
 	nqn := volOpts["nqn"]
 
 	if targetTrAddr == "" || nqn == "" || targetTrPort == "" || targetTrType == "" || deviceUUID == "" {
@@ -72,6 +76,8 @@ func getNVMfDiskInfo(req *csi.NodePublishVolumeRequest) (*nvmfDiskInfo, error) {
 		Nqn:        nqn,
 		DeviceUUID: deviceUUID,
 		Transport:  targetTrType,
+		HostNqn:    devHostNqn,
+		HostId:     devHostId,
 	}, nil
 }
 
