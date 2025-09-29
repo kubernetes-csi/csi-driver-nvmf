@@ -32,7 +32,7 @@ const (
 	DefaultDriverServicePort = "12230"
 	DefaultDriverVersion     = "v1.0.0"
 
-	DefaultVolumeMapPath = "/var/lib/nvmf/volumes"
+	DefaultVolumeMapPath = "/var/lib/kubelet/plugins/csi.nvmf.com/volumes"
 )
 
 type GlobalConfig struct {
