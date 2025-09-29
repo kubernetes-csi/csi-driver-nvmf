@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: csi-nvmf-pv-block
+spec:
+  storageClassName: csi-nvmf-sc-block
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Block
+  capacity:
+    storage: 20Gi
+  csi:
+    driver: csi.nvmf.com
+    volumeHandle: nvmf-data-id
+    volumeAttributes:
+      targetTrAddr: "192.168.122.18"
+      targetTrPort: "49153"
+      targetTrType: "tcp"
+      deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
+      nqn: "nqn.2022-08.org.test-nvmf.example"
