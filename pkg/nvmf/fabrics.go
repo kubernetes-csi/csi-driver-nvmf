@@ -36,11 +36,24 @@ type Connector struct {
 	TargetPort    string
 	Transport     string
 	HostNqn       string
+	HostId        string
 	RetryCount    int32
 	CheckInterval int32
 }
 
-func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
+func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
+	hostnqnData, err := os.ReadFile("/etc/nvme/hostnqn")
+	hostnqn := strings.TrimSpace(string(hostnqnData))
+	if err != nil {
+		hostnqn = ""
+	}
+
+	hostidData, err := os.ReadFile("/etc/nvme/hostid")
+	hostid := strings.TrimSpace(string(hostidData))
+	if err != nil {
+		hostid = ""
+	}
+
 	return &Connector{
 		VolumeID:   nvmfInfo.VolName,
 		DeviceUUID: nvmfInfo.DeviceUUID,
@@ -49,6 +62,7 @@ func getNvmfConnector(nvmfInfo *nvmfDiskInfo, hostnqn string) *Connector {
 		TargetPort: nvmfInfo.Port,
 		Transport:  nvmfInfo.Transport,
 		HostNqn:    hostnqn,
+		HostId:     hostid,
 	}
 }
 
@@ -176,17 +190,19 @@ func disconnectByNqn(nqn, hostnqn string) int {
 	}
 
 	// delete hostnqn file
-	hostnqnPath := filepath.Join(RUN_NVMF, nqn, b64.StdEncoding.EncodeToString([]byte(hostnqn)))
-	os.Remove(hostnqnPath)
+	if hostnqn != "" {
+		hostnqnPath := filepath.Join(RUN_NVMF, nqn, b64.StdEncoding.EncodeToString([]byte(hostnqn)))
+		os.Remove(hostnqnPath)
+	}
 
 	// delete nqn directory if has no hostnqn files
 	nqnPath := filepath.Join(RUN_NVMF, nqn)
-	hostnqns, err := os.ReadDir(nqnPath)
+	hostnqnFiles, err := os.ReadDir(nqnPath)
 	if err != nil {
 		klog.Errorf("Disconnect: readdir %s err: %v", nqnPath, err)
 		return -ENOENT
 	}
-	if len(hostnqns) <= 0 {
+	if len(hostnqnFiles) <= 0 {
 		os.RemoveAll(nqnPath)
 	}
 
@@ -197,29 +213,26 @@ func disconnectByNqn(nqn, hostnqn string) int {
 	}
 
 	for _, device := range devices {
-		if err := disconnectSubsysWithHostNqn(nqn, hostnqn, device.Name()); err != nil {
-			if _, ok := err.(*UnsupportedHostnqnError); ok {
+		if hostnqn != "" {
+			if err := disconnectSubsysWithHostNqn(nqn, hostnqn, device.Name()); err == nil {
 				klog.Infof("Fallback because you have no hostnqn supports!")
-
-				// disconnect all controllers if has no hostnqn files
-				if len(hostnqns) <= 0 {
-					devices, err := os.ReadDir(SYS_NVMF)
-					if err != nil {
-						klog.Errorf("Disconnect: readdir %s err: %s", SYS_NVMF, err)
-						return -ENOENT
-					}
-
-					for _, device := range devices {
-						if err := disconnectSubsys(nqn, device.Name()); err == nil {
-							ret++
-						}
-					}
-				}
-
-				return ret
+				ret++
 			}
 		} else {
-			ret++
+			// disconnect all controllers if has no hostnqn files
+			if len(hostnqnFiles) <= 0 {
+				devices, err := os.ReadDir(SYS_NVMF)
+				if err != nil {
+					klog.Errorf("Disconnect: readdir %s err: %s", SYS_NVMF, err)
+					return -ENOENT
+				}
+
+				for _, device := range devices {
+					if err := disconnectSubsys(nqn, device.Name()); err == nil {
+						ret++
+					}
+				}
+			}
 		}
 	}
 
@@ -244,7 +257,17 @@ func (c *Connector) Connect() (string, error) {
 		return "", fmt.Errorf("csi transport only support tcp/rdma ")
 	}
 
-	baseString := fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s,hostnqn=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort, c.HostNqn)
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("nqn=%s,transport=%s,traddr=%s,trsvcid=%s", c.TargetNqn, c.Transport, c.TargetAddr, c.TargetPort))
+
+	if c.HostNqn != "" {
+		builder.WriteString(fmt.Sprintf(",hostnqn=%s", c.HostNqn))
+	}
+	if c.HostId != "" {
+		builder.WriteString(fmt.Sprintf(",hostid=%s", c.HostId))
+	}
+	baseString := builder.String()
+
 	devicePath := strings.Join([]string{"/dev/disk/by-id/nvme-uuid", c.DeviceUUID}, ".")
 
 	// connect to nvmf disk
@@ -275,17 +298,19 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	// create hostnqn file
-	hostnqnPath := filepath.Join(RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn)))
-	file, err := os.Create(hostnqnPath)
-	if err != nil {
-		klog.Errorf("create hostnqn file %s:%s error %v, rollback!!!", c.TargetNqn, c.HostNqn, err)
-		ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
-		if ret < 0 {
-			klog.Errorf("rollback error !!!")
+	if c.HostNqn != "" {
+		hostnqnPath := filepath.Join(RUN_NVMF, c.TargetNqn, b64.StdEncoding.EncodeToString([]byte(c.HostNqn)))
+		file, err := os.Create(hostnqnPath)
+		if err != nil {
+			klog.Errorf("create hostnqn file %s:%s error %v, rollback!!!", c.TargetNqn, c.HostNqn, err)
+			ret := disconnectByNqn(c.TargetNqn, c.HostNqn)
+			if ret < 0 {
+				klog.Errorf("rollback error !!!")
+			}
+			return "", err
 		}
-		return "", err
+		defer file.Close()
 	}
-	defer file.Close()
 
 	klog.Infof("After connect we're returning devicePath: %s", devicePath)
 	return devicePath, nil
