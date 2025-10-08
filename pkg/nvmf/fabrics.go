@@ -42,16 +42,26 @@ type Connector struct {
 }
 
 func getNvmfConnector(nvmfInfo *nvmfDiskInfo) *Connector {
-	hostnqnData, err := os.ReadFile("/etc/nvme/hostnqn")
-	hostnqn := strings.TrimSpace(string(hostnqnData))
-	if err != nil {
-		hostnqn = ""
+	hostnqn := ""
+	if nvmfInfo.HostNqn != "" {
+		hostnqn = nvmfInfo.HostNqn
+	} else {
+		hostnqnData, err := os.ReadFile("/etc/nvme/hostnqn")
+		hostnqn = strings.TrimSpace(string(hostnqnData))
+		if err != nil {
+			hostnqn = ""
+		}
 	}
 
-	hostidData, err := os.ReadFile("/etc/nvme/hostid")
-	hostid := strings.TrimSpace(string(hostidData))
-	if err != nil {
-		hostid = ""
+	hostid := ""
+	if nvmfInfo.HostId != "" {
+		hostid = nvmfInfo.HostId
+	} else {
+		hostidData, err := os.ReadFile("/etc/nvme/hostid")
+		hostid = strings.TrimSpace(string(hostidData))
+		if err != nil {
+			hostid = ""
+		}
 	}
 
 	return &Connector{
