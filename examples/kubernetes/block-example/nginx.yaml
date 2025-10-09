@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-block-test1
+  name: nginx-block-test
   labels:
     app: nginx
 spec:
@@ -18,10 +18,10 @@ spec:
           image: nginx
           ports:
             - containerPort: 80
-          volumeMounts:
-            - mountPath: /dev/nvmf
+          volumeDevices:
+            - devicePath: /dev/nvmf
               name: nvmf-volume
       volumes:
         - name: nvmf-volume
           persistentVolumeClaim:
-            claimName: csi-nvmf-pvc
+            claimName: csi-nvmf-pvc-block

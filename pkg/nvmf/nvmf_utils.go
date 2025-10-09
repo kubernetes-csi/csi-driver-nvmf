@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"time"
 
@@ -41,7 +43,7 @@ func waitForPathToExist(devicePath string, maxRetries, intervalSeconds int, devi
 		}
 		time.Sleep(time.Second * time.Duration(intervalSeconds))
 	}
-	return false, fmt.Errorf("not found devicePath %s", devicePath)
+	return false, fmt.Errorf("not found devicePath %s and transport %s", devicePath, deviceTransport)
 }
 
 func GetDeviceNameByVolumeID(volumeID string) (deviceName string, err error) {
@@ -90,4 +92,14 @@ func logGRPC(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, h
 		klog.Infof("GRPC response: %s", protosanitizer.StripSecrets(resp))
 	}
 	return resp, err
+}
+
+func Rollback(err error, fc func()) {
+
+	if err != nil {
+		if fc != nil {
+			klog.Infof("Executing rollback func:%s for error: %v", runtime.FuncForPC(reflect.ValueOf(fc).Pointer()).Name(), err)
+		}
+		fc()
+	}
 }
