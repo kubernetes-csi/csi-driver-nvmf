@@ -15,5 +15,18 @@ spec:
       targetTrAddr: "192.168.122.18"
       targetTrPort: "49153"
       targetTrType: "tcp"
-      deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
       nqn: "nqn.2022-08.org.test-nvmf.example"
+      # you can use any format of ID here, uuid., eui., whatever your storage pusts into ID_WWN or ID_SERIAL, as udev puts that in /dev/disk/by-id
+      deviceID: "uuid.58668891-c3e4-45d0-b90e-824525c16080"
+      #deviceID: "INTEL_SSDPF2KX038T9N_PHAB2261050P3P9EGN"
+      #deviceID: "Pure_Storage_FlashArray_AA00000000000AAA_42"
+      #
+      # for uuid, eui and nguid formats. there's an alias
+      #deviceUUID: "58668891-c3e4-45d0-b90e-824525c16080"
+      # is the same as
+      #deviceID: "uuid.58668891-c3e4-45d0-b90e-824525c16080"
+      #
+      # both EUI and NGUID will appear as eui.something
+      #deviceEUI: "00000000000000000042aa42aa42aa42"
+      # is the same as
+      #deviceID: "eui.00000000000000000042aa42aa42aa42"
