@@ -259,7 +259,7 @@ func (c *Connector) Connect() (string, error) {
 	}
 
 	if c.RetryCount < 0 || c.CheckInterval < 0 {
-		return "", fmt.Errorf("Invalid RetryCount and CheckInterval combinaitons "+
+		return "", fmt.Errorf("invalid RetryCount and CheckInterval combinaitons "+
 			"RetryCount: %d, CheckInterval: %d ", c.RetryCount, c.CheckInterval)
 	}
 
@@ -351,12 +351,12 @@ func persistConnectorFile(c *Connector, filePath string) error {
 
 }
 
-func removeConnectorFile(targetPath string) {
+func removeConnectorFile(filePath string) {
 	// todo: here maybe be attack for os.Remove can operate any file, fix?
-	if err := os.Remove(targetPath + ".json"); err != nil {
-		klog.Errorf("DetachDisk: Can't remove connector file: %s", targetPath)
+	if err := os.Remove(filePath); err != nil {
+		klog.Errorf("DetachDisk: Can't remove connector file: %s", filePath)
 	}
-	if err := os.RemoveAll(targetPath); err != nil {
+	if err := os.RemoveAll(filePath); err != nil {
 		klog.Errorf("DetachDisk: failed to remove mount path Error: %v", err)
 	}
 }
